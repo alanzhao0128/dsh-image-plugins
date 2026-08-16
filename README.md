@@ -12,7 +12,6 @@ Everything is optional: a capability is enabled only when its config block is pr
 |---|---|---|
 | `understand_image` | model tool | Reads a workspace image file, sends it to your vision endpoint (`chat/completions` + base64 `image_url`), returns the model's text description as the tool result. The description enters the session log, so a text-only main model can reason about the image without ever receiving one. |
 | `generate_image` | model tool | Generates an image from a prompt via your endpoint, saves it into the workspace, returns the saved path. With the `dashscope` provider it also accepts an optional `reference_image` for image editing (I2I). |
-| auto-understand *(optional)* | `agent/pre-step` waterfall | If you enable it, images attached to a chat message are described by the vision model and rewritten to text before entering the log. Requires the routed model to declare image input (see [V2](#v2-optional-attach-an-image-in-chat)); off by recommendation — the V1 tool flow needs no such setup. |
 
 ## Quick start
 
@@ -37,7 +36,6 @@ Everything is optional: a capability is enabled only when its config block is pr
          apiKey: 'sk-...'
          model: 'your-image-model'
          defaultSize: '1024x1024'
-       autoUnderstand: false
    ```
 
 3. **Restart `dsh web`**, then in the workspace:
@@ -102,7 +100,6 @@ Override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`,
       timeoutMs: 120000              # optional
       defaultSize: '1024x1024'       # optional
       outputDir: 'generated'         # optional, workspace-relative
-    autoUnderstand: false            # optional; V2 drag-to-chat, see below
 ```
 
 Notes:
@@ -130,7 +127,6 @@ DashScope's compatible-mode path does **not** serve `images/generations` (it 404
       apiKey: 'sk-...'                # 百炼 API Key
       model: 'qwen-image-3.0-pro'
       defaultSize: '1024x1024'        # converted to the native 1024*1024 form
-    autoUnderstand: false
 ```
 
 The image adapter calls `POST /api/v1/services/aigc/multimodal-generation/generation` (sync), maps `output.choices[0].message.content[0].image`, and downloads the PNG (URLs expire after 24 h). Works with the `qwen-image` family, including `qwen-image-3.0-pro`.
@@ -159,24 +155,6 @@ The agent calls `understand_image` with the path, optionally passing a specific 
 
 The agent calls `generate_image`; the file lands in the workspace under `generated/` (or your configured `outputDir`) and the tool result reports the path.
 
-### V2 (optional): attach an image in chat
-
-Pasting an image into the composer works only when the **routed model declares image input** — the host refuses attachments for text-only models. To enable drag-to-chat, add a hand-declared model profile via the pi-ai custom provider (the pi-ai catalog already ships the `deepseek` route with `deepseek-v4-flash` / `deepseek-v4-pro`):
-
-```yaml
-# $DSH_HOME/settings.yaml
-llm-pi-ai:
-  providers:
-    deepseek:
-      displayName: DeepSeek (image-compatible)
-      apiKeyEnv: DEEPSEEK_API_KEY
-      modelOverrides:
-        deepseek-v4-flash:
-          input: [text, image]
-```
-
-Then set `autoUnderstand: true`, select that model in the session model selector, and attach images: the plugin describes them with your vision model and the main model sees the description — no tool call needed. This is an opt-in trade-off (a fake modality claim on a text-only route, neutralized before the wire); the V1 tool flow above needs none of it. If your main model genuinely accepts images (e.g. a qwen-vl route), keep `autoUnderstand: false` so the real image reaches it.
-
 ## Distribution
 
 | Channel | Install command | Notes |
@@ -188,7 +166,6 @@ Then set `autoUnderstand: true`, select that model in the session model selector
 ## How it stays compatible with dsh's architecture
 
 - Tools are registered through the documented `ctx.tools` seam (`@deepseek-ai/dsh-tools` `defineTool`); tool results are durable log entries, which is exactly the channel the "model-visible ⟺ logged" invariant requires.
-- Auto-understand (V2) uses the documented `agent/pre-step` waterfall (same mechanism as the first-party `time-context` plugin): the rewritten messages are what the loop appends to the log, so the request-reconstruction invariant is preserved.
 - The plugin depends only on published `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery`; no internal modules.
 
 ## Development
@@ -214,7 +191,6 @@ DSH_HOME=/tmp/dsh-image-test-home dsh --profile test --dump-config   # shows the
 - **No video generation.** Planned as a background-job capability (`ctx.jobs`) once a provider interface is chosen.
 - **No per-request retry/backoff** for endpoint failures; the caller sees the error.
 - **Version pinning.** Built and tested against `@deepseek-ai/*` 0.1.0-rc.6; dsh is in developer preview and breaking changes are expected between releases. Re-run `npm test` after upgrading the host.
-- **Description caching.** Auto-understand (V2) caches descriptions per attachment id (content-addressed) in memory, bounded to 64 entries.
 
 ## License
 

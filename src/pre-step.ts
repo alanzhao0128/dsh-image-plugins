@@ -1,4 +1,10 @@
 /**
+ * EXPERIMENTAL — not documented in the README and not part of the supported
+ * surface. Implemented and unit-tested, but never verified end-to-end in a
+ * live session, and unreachable without the rejected "declared image input"
+ * workaround (the host preflight refuses attachments for text-only models).
+ * Kept dormant for a possible paste-to-chat iteration; do not build on it.
+ *
  * V2 auto-understand: an `agent/pre-step` waterfall listener that rewrites
  * claimed user messages carrying image blocks into text carrying the vision
  * model's description. The rewritten messages are exactly what the loop

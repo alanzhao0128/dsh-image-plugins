@@ -53,6 +53,9 @@ export const Config: z<PluginConfig> = z.object({
     outputDir: z.string(),
     maxReferenceBytes: z.number(),
   }),
+  // EXPERIMENTAL, undocumented: enables the dormant pre-step auto-understand
+  // rewrite (src/pre-step.ts). Keep false; the supported surface is the two
+  // model tools.
   autoUnderstand: z.boolean(),
 })
 
