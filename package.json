@@ -1,7 +1,20 @@
 {
   "name": "dsh-image-plugins",
   "version": "0.1.0",
-  "description": "Multimodal plugin for DeepSeek Harness: understand images and generate images through configurable OpenAI-compatible endpoints.",
+  "description": "Multimodal plugin for DeepSeek Harness: understand images and generate images through configurable OpenAI-compatible or DashScope endpoints.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "multimodal",
+    "vision",
+    "image-generation",
+    "image-understanding"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alanzhao0128/dsh-image-plugins.git"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
