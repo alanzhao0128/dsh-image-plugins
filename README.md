@@ -1,29 +1,82 @@
 # dsh-image-plugins
 
-Multimodal capability for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) behind a text-only main model (e.g. DeepSeek's official chat route, which cannot carry images). The plugin understands image files and generates images through **configurable OpenAI-compatible endpoints** — bring your own `baseUrl` / `apiKey` / `model` for a vision model and for an image-generation model.
+[![npm version](https://img.shields.io/npm/v/dsh-image-plugins)](https://www.npmjs.com/package/dsh-image-plugins)
 
-Everything is optional: a capability is enabled only when its config block is present, so an unconfigured install is inert and safe.
+Multimodal capability for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) behind a text-only main model (e.g. DeepSeek's official chat route, which cannot carry images). The plugin understands image files and generates images through **fully configurable endpoints** — bring your own `baseUrl` / `apiKey` / `model` for a vision model and for an image-generation model. Any OpenAI-compatible endpoint works; an optional `dashscope` adapter speaks the Alibaba Model Studio native API.
+
+Everything is optional: a capability is enabled only when its config block is present, so an unconfigured install is inert and safe. No API keys are shipped in the package — each user configures their own.
 
 ## What it provides
 
 | Capability | Kind | Behavior |
 |---|---|---|
-| `understand_image` | model tool | Reads a workspace image file, sends it to the configured vision endpoint (`chat/completions` + base64 `image_url`), returns the model's text description as the tool result. The description enters the session log, so the text-only main model can reason about the image without ever receiving one. |
-| `generate_image` | model tool | Generates one image from a prompt via the configured endpoint (`images/generations`, accepts `b64_json` or `url` responses), saves it into the workspace, returns the saved path. With the `dashscope` provider it also accepts an optional `reference_image` for image editing (I2I). |
-| auto-understand | `agent/pre-step` waterfall | When you attach an image to a chat message, the plugin describes it with the vision model and rewrites the message to carry that text before it enters the log — the model never sees an image block, and the request-reconstruction invariant holds because the rewritten message is exactly what is logged. It rewrites whenever enabled (no "does the model accept images" gate: a text-only endpoint declared image-capable for attachment preflight must still be rewritten, or the provider rejects the image mid-turn); set `autoUnderstand: false` when your main model genuinely accepts images. |
+| `understand_image` | model tool | Reads a workspace image file, sends it to your vision endpoint (`chat/completions` + base64 `image_url`), returns the model's text description as the tool result. The description enters the session log, so a text-only main model can reason about the image without ever receiving one. |
+| `generate_image` | model tool | Generates an image from a prompt via your endpoint, saves it into the workspace, returns the saved path. With the `dashscope` provider it also accepts an optional `reference_image` for image editing (I2I). |
+| auto-understand *(optional)* | `agent/pre-step` waterfall | If you enable it, images attached to a chat message are described by the vision model and rewritten to text before entering the log. Requires the routed model to declare image input (see [V2](#v2-optional-attach-an-image-in-chat)); off by recommendation — the V1 tool flow needs no such setup. |
+
+## Quick start
+
+1. **Install** (npm; or see [Install](#install) for other channels):
+
+   ```sh
+   dsh plugin --profile web add dsh-image-plugins
+   ```
+
+2. **Configure** — override the `image-plugins` row in your profile's `cordis.patch.yml` with **your own** endpoint and key (any OpenAI-compatible provider):
+
+   ```yaml
+   - id: image-plugins
+     name: dsh-image-plugins
+     config:
+       vision:
+         baseUrl: 'https://your-vision-endpoint.example.com/v1'
+         apiKey: 'sk-...'
+         model: 'your-vision-model'
+       image:
+         baseUrl: 'https://your-image-endpoint.example.com/v1'
+         apiKey: 'sk-...'
+         model: 'your-image-model'
+         defaultSize: '1024x1024'
+       autoUnderstand: false
+   ```
+
+3. **Restart `dsh web`**, then in the workspace:
+
+   - 看图：*"Look at `images/screenshot.png` and tell me what it shows."*
+   - 生图：*"Generate an image of a red apple on a wooden table."*（保存到 `generated/`）
+   - 图生图（需 `dashscope` provider）：*"Change the color of `images/logo.png` to blue."*
 
 ## Install
 
-The plugin is a standard dsh **bundle**. Install it into the profile that boots your Web UI:
+The plugin is a standard dsh **bundle**. From npm (recommended):
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-image-plugins   # local checkout
-dsh plugin --profile web add dsh-image-plugins            # once published
+dsh plugin --profile web add dsh-image-plugins
 ```
 
-Then restart `dsh web` (or the profile's process).
+Other channels:
 
-> The bundle inserts its row **without configuration**, so after install nothing is enabled until you configure it (next section). The plugin loads fine either way.
+```sh
+# GitHub (pin a version; the first install needs allowBuilds, see below)
+dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.1.0
+
+# Tarball (npm pack output, send the file)
+dsh plugin --profile web add ./dsh-image-plugins-0.1.0.tgz
+
+# Local checkout
+dsh plugin --profile web add /path/to/dsh-image-plugins
+```
+
+Then restart `dsh web` (or the profile's process). For a GitHub install, pnpm ≥ 10 refuses to run the package's build script until you allow it in the profile's `pnpm-workspace.yaml`:
+
+```yaml
+allowBuilds:
+  dsh-image-plugins: true
+```
+
+then re-run the `add` command. npm and tarball installs ship built artifacts and need no allowance.
+
+> The bundle inserts its row **without configuration**, so after install nothing is enabled until you configure it. The plugin loads fine either way.
 
 ## Configure
 
@@ -49,7 +102,7 @@ Override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`,
       timeoutMs: 120000              # optional
       defaultSize: '1024x1024'       # optional
       outputDir: 'generated'         # optional, workspace-relative
-    autoUnderstand: true             # optional, default true
+    autoUnderstand: false            # optional; V2 drag-to-chat, see below
 ```
 
 Notes:
@@ -57,11 +110,11 @@ Notes:
 - Each block is independent: configure only `vision`, only `image`, or both. A partially filled block (e.g. `baseUrl` without `apiKey`) fails the load loudly.
 - `apiKey` accepts a literal value or `env:VARNAME` resolved from the process environment. Keys never enter the session log or tool results.
 - The profile patch targets the row by id and replaces its whole config — restate every key you need.
-- Endpoints must be OpenAI-compatible: vision = `POST {baseUrl}/chat/completions` accepting `image_url` data URLs; image generation = `POST {baseUrl}/images/generations` returning `data[0].b64_json` or `data[0].url`.
+- Endpoints must be OpenAI-compatible: vision = `POST {baseUrl}/chat/completions` accepting `image_url` data URLs; image generation = `POST {baseUrl}/images/generations` returning `data[0].b64_json` or `data[0].url`. Anything compatible — OpenAI, 硅基流动, 智谱, 通义兼容模式, Ollama, etc. — works as-is.
 
 ### DashScope (阿里云百炼)
 
-DashScope's compatible-mode path does **not** serve `images/generations` (it 404s), so image generation speaks the native Model Studio API through `provider: 'dashscope'`. Vision (`understand_image` / auto-understand), by contrast, works through the compatible-mode `chat/completions` path with any VL model. Both share the same API key:
+DashScope's compatible-mode path does **not** serve `images/generations` (it 404s), so image generation speaks the native Model Studio API through `provider: 'dashscope'`. Vision (`understand_image`) works through the compatible-mode `chat/completions` path with any VL model. Both share the same API key:
 
 ```yaml
 - id: image-plugins
@@ -77,13 +130,14 @@ DashScope's compatible-mode path does **not** serve `images/generations` (it 404
       apiKey: 'sk-...'                # 百炼 API Key
       model: 'qwen-image-3.0-pro'
       defaultSize: '1024x1024'        # converted to the native 1024*1024 form
+    autoUnderstand: false
 ```
 
 The image adapter calls `POST /api/v1/services/aigc/multimodal-generation/generation` (sync), maps `output.choices[0].message.content[0].image`, and downloads the PNG (URLs expire after 24 h). Works with the `qwen-image` family, including `qwen-image-3.0-pro`.
 
 ### Image editing (I2I) with a reference image
 
-With the `dashscope` provider, `generate_image` accepts an optional `reference_image` path. The reference (PNG/JPEG/WebP/GIF, ≤ 10 MiB, default cap configurable via `image.maxReferenceBytes`) is sent to the model as base64 alongside the prompt:
+With the `dashscope` provider, `generate_image` accepts an optional `reference_image` path. The reference (PNG/JPEG/WebP/GIF, ≤ 10 MiB, cap configurable via `image.maxReferenceBytes`) is sent to the model as base64 alongside the prompt:
 
 > Change the color of `images/logo.png` to blue, keep everything else identical.
 
@@ -91,44 +145,50 @@ The model edits the reference image instead of generating from scratch. The `ope
 
 ## Use
 
-### Understand an image (V1 tool)
+### Understand an image (V1 tool, recommended)
 
-Put the image somewhere in the workspace, then ask the agent, e.g.:
+Put the image somewhere in the workspace, then ask the agent:
 
 > Look at `images/screenshot.png` and tell me what it shows.
 
-The agent calls `understand_image` with the path (and optionally a specific question as `prompt`).
+The agent calls `understand_image` with the path, optionally passing a specific question as `prompt` (e.g. *"what is the trend of the third row in this chart?"*).
 
-### Generate an image (V1 tool)
+### Generate an image (V1 tool, recommended)
 
 > Generate an image of a red apple on a wooden table.
 
 The agent calls `generate_image`; the file lands in the workspace under `generated/` (or your configured `outputDir`) and the tool result reports the path.
 
-### Attach an image in chat (V2 auto-understand)
+### V2 (optional): attach an image in chat
 
-The host refuses to admit an attachment unless the **routed model** declares image input. A text-only endpoint (like DeepSeek's) therefore needs a hand-declared model profile claiming `input: [text, image]` — the plugin rewrites the image to text at `agent/pre-step` before the provider ever sees it, so the claim never has to be true on the wire. With the pi-ai custom provider this is a settings-level addition (the pi-ai catalog already ships the `deepseek` route with `deepseek-v4-flash` / `deepseek-v4-pro`):
+Pasting an image into the composer works only when the **routed model declares image input** — the host refuses attachments for text-only models. To enable drag-to-chat, add a hand-declared model profile via the pi-ai custom provider (the pi-ai catalog already ships the `deepseek` route with `deepseek-v4-flash` / `deepseek-v4-pro`):
 
 ```yaml
 # $DSH_HOME/settings.yaml
 llm-pi-ai:
   providers:
     deepseek:
-      displayName: DeepSeek（图片兼容）
+      displayName: DeepSeek (image-compatible)
       apiKeyEnv: DEEPSEEK_API_KEY
       modelOverrides:
         deepseek-v4-flash:
           input: [text, image]
 ```
 
-Then, in the Web UI, **select that provider's model** in the session model selector (it appears under the display name), attach the image, and send: the plugin describes the image with your configured vision model and the DeepSeek model sees the description — no tool call needed. The `understand_image` tool stays available for deeper questions. Attaching an image while the plain text-only model is selected still refuses, naming the model.
+Then set `autoUnderstand: true`, select that model in the session model selector, and attach images: the plugin describes them with your vision model and the main model sees the description — no tool call needed. This is an opt-in trade-off (a fake modality claim on a text-only route, neutralized before the wire); the V1 tool flow above needs none of it. If your main model genuinely accepts images (e.g. a qwen-vl route), keep `autoUnderstand: false` so the real image reaches it.
 
-If your main model genuinely accepts images (e.g. a qwen-vl route), set `autoUnderstand: false` so the real image reaches it instead of a description.
+## Distribution
+
+| Channel | Install command | Notes |
+|---|---|---|
+| npm | `dsh plugin --profile web add dsh-image-plugins` | Recommended; no build allowance |
+| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.1.0` | Needs `allowBuilds` once |
+| Tarball | `dsh plugin add ./dsh-image-plugins-0.1.0.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
 
 ## How it stays compatible with dsh's architecture
 
 - Tools are registered through the documented `ctx.tools` seam (`@deepseek-ai/dsh-tools` `defineTool`); tool results are durable log entries, which is exactly the channel the "model-visible ⟺ logged" invariant requires.
-- Auto-understand uses the documented `agent/pre-step` waterfall (same mechanism as the first-party `time-context` plugin): the rewritten messages are what the loop appends to the log, so the request-reconstruction invariant is preserved.
+- Auto-understand (V2) uses the documented `agent/pre-step` waterfall (same mechanism as the first-party `time-context` plugin): the rewritten messages are what the loop appends to the log, so the request-reconstruction invariant is preserved.
 - The plugin depends only on published `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery`; no internal modules.
 
 ## Development
@@ -136,7 +196,7 @@ If your main model genuinely accepts images (e.g. a qwen-vl route), set `autoUnd
 ```sh
 npm install
 npm test          # unit tests against mock endpoints + real Cordis mount
-npm run build     # tsc -> lib/
+npm run build     # tsc -> lib/ (also runs on prepare)
 ```
 
 Smoke-verify against a scratch profile (does not touch your real profiles):
@@ -148,13 +208,13 @@ DSH_HOME=/tmp/dsh-image-test-home dsh --profile test --dump-config   # shows the
 
 ## Known Limitations and Deferred Work
 
-- **Binary writes bypass the fs approval events.** The fs seam exposes no binary write today, so `generate_image` resolves the target through `ctx.fs` (consistent path rules) but writes the bytes with `node:fs`. The write therefore does not emit `fs/write-intent` approval events. Switch to a seam write when the fs service grows one.
+- **Binary writes bypass the fs approval events.** The fs seam exposes no binary write today, so `generate_image` resolves the target through `ctx.fs` (consistent path rules, session-workspace cwd) but writes the bytes with `node:fs`. The write therefore does not emit `fs/write-intent` approval events. Switch to a seam write when the fs service grows one.
 - **Vision responses are text-only.** The plugin returns descriptions as text; it never emits image content blocks, because a text-only route cannot carry them into the next request.
 - **No inline chat preview yet.** Generated images are returned as paths with a generic tool card (the path is clickable to open). An inline preview needs a client-side `tool.call.toolview` registration (V1.5, not shipped).
 - **No video generation.** Planned as a background-job capability (`ctx.jobs`) once a provider interface is chosen.
 - **No per-request retry/backoff** for endpoint failures; the caller sees the error.
 - **Version pinning.** Built and tested against `@deepseek-ai/*` 0.1.0-rc.6; dsh is in developer preview and breaking changes are expected between releases. Re-run `npm test` after upgrading the host.
-- **Description caching.** Auto-understand caches descriptions per attachment id (content-addressed) in memory, bounded to 64 entries.
+- **Description caching.** Auto-understand (V2) caches descriptions per attachment id (content-addressed) in memory, bounded to 64 entries.
 
 ## License
 
