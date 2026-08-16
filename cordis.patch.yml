@@ -1,0 +1,8 @@
+# dsh-image-plugins bundle layer.
+#
+# The row is inserted without configuration so a fresh install stays inert:
+# nothing is enabled until you override this row (same id) in your profile's
+# cordis.patch.yml or a --patch overlay with the config documented in README.md.
+- insert:
+    - id: image-plugins
+      name: dsh-image-plugins
