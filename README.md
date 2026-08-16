@@ -13,6 +13,12 @@ Everything is optional: a capability is enabled only when its config block is pr
 | `understand_image` | model tool | Reads a workspace image file, sends it to your vision endpoint (`chat/completions` + base64 `image_url`), returns the model's text description as the tool result. The description enters the session log, so a text-only main model can reason about the image without ever receiving one. |
 | `generate_image` | model tool | Generates an image from a prompt via your endpoint, saves it into the workspace, returns the saved path. With the `dashscope` provider it also accepts an optional `reference_image` for image editing (I2I). |
 
+## Auto-understand (V2): implemented but disabled
+
+The plugin contains a dormant `agent/pre-step` rewrite (config flag `autoUnderstand`, default off): when enabled, images attached to a chat message are described by the vision model and the message is rewritten to carry that text before it enters the session log, so the main model never receives an image block. The code is unit-tested but was **never verified end-to-end in a live session** and is not part of the supported surface.
+
+Why it is disabled: attaching an image to a chat message requires the routed model to declare `input: [text, image]` — the host refuses attachments for text-only models — and for a text-only endpoint (like DeepSeek's) that declaration is a workaround: a claim the endpoint never actually honors, neutralized by the rewrite before the wire. We found that inelegant and disabled the feature. The supported flow is the V1 tools above (image files in the workspace, no declaration needed). A future paste-to-chat iteration would use a lighter paste-to-path client approach instead.
+
 ## Quick start
 
 1. **Install** (npm; or see [Install](#install) for other channels):
