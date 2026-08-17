@@ -2,3 +2,4 @@ node_modules/
 lib/
 *.tgz
 .npm-cache/
+LOCAL-HANDOFF.md
