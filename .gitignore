@@ -3,3 +3,4 @@ lib/
 *.tgz
 .npm-cache/
 LOCAL-HANDOFF.md
+NEW-SESSION-PROMPT.md
