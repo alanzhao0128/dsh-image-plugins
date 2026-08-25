@@ -92,7 +92,7 @@ Override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`,
   config:
     vision:
       baseUrl: 'https://your-vision-endpoint.example.com/v1'
-      apiKey: 'env:VISION_API_KEY'   # literal key or env:NAME
+      apiKey: 'env:VISION_API_KEY'   # literal key, env:NAME, or cred:NAME (see notes)
       model: 'your-vision-model'
       timeoutMs: 60000               # optional
       maxImageBytes: 20971520        # optional, bytes
@@ -111,7 +111,11 @@ Override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`,
 Notes:
 
 - Each block is independent: configure only `vision`, only `image`, or both. A partially filled block (e.g. `baseUrl` without `apiKey`) fails the load loudly.
-- `apiKey` accepts a literal value or `env:VARNAME` resolved from the process environment. Keys never enter the session log or tool results.
+- `apiKey` accepts three forms:
+  - a **literal** secret (`'sk-...'`),
+  - `env:VARNAME` — resolved from the process environment at load,
+  - `cred:NAME` — resolved through the host credential seam (`ctx.credentials`, e.g. `~/.dsh/.credentials.yaml`) **at each request** (the credential service may start after plugin load, so resolution is deferred to the request path). Requires the host's credentials service (present in the stock dsh profiles).
+  - Keys never enter the session log or tool results.
 - The profile patch targets the row by id and replaces its whole config — restate every key you need.
 - Endpoints must be OpenAI-compatible: vision = `POST {baseUrl}/chat/completions` accepting `image_url` data URLs; image generation = `POST {baseUrl}/images/generations` returning `data[0].b64_json` or `data[0].url`. Anything compatible — OpenAI, 硅基流动, 智谱, 通义兼容模式, Ollama, etc. — works as-is.
 
@@ -136,6 +140,25 @@ DashScope's compatible-mode path does **not** serve `images/generations` (it 404
 ```
 
 The image adapter calls `POST /api/v1/services/aigc/multimodal-generation/generation` (sync), maps `output.choices[0].message.content[0].image`, and downloads the PNG (URLs expire after 24 h). Works with the `qwen-image` family, including `qwen-image-3.0-pro`.
+
+### DeepSeek official (image understanding)
+
+DeepSeek's official endpoint now advertises an image-capable model, `deepseek-v4-flash-vision-exp` (dsh ≥ 0.1.1-rc.2 advertises it in the `deepseek-official` catalog). You can point `vision` at it with your DeepSeek API key — keep the key in `~/.dsh/.credentials.yaml` and reference it with `cred:`:
+
+```yaml
+- id: image-plugins
+  name: dsh-image-plugins
+  config:
+    vision:
+      baseUrl: 'https://api.deepseek.com'
+      apiKey: 'cred:DEEPSEEK_API_KEY'
+      model: 'deepseek-v4-flash-vision-exp'
+```
+
+Two things to know before switching:
+
+- **The plugin sends images inline as base64 `image_url` parts.** DeepSeek's official adapter normally uploads images through its Files API and references them by `file_id` to avoid re-sending bytes; this plugin's direct `chat/completions` path uses inline data URLs instead. That works (verified), but repeated understanding of the same image re-sends the bytes — if that matters, prefer the host's native image input (select `deepseek-v4-flash-vision-exp` as the routed model) rather than this plugin for that endpoint.
+- **Third-party DeepSeek-compatible channels may not carry the vision model.** For example, Volcano Ark (火山方舟) accepts the model id for text but rejects image input with `400 Model do not support image input` (as of 2026-08). Verify image input on your channel before relying on it.
 
 ### Image editing (I2I) with a reference image
 

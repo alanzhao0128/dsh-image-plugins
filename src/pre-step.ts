@@ -29,6 +29,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { VisionConfig } from './config.js'
 import { DEFAULT_AUTO_PROMPT, DEFAULT_TIMEOUT_MS } from './config.js'
+import { resolveApiKeyRuntime } from './config.js'
 import { callVision } from './vision.js'
 
 /** Bound on the per-process description cache (attachment ids are immutable). */
@@ -97,10 +98,11 @@ export function applyAutoUnderstand(ctx: Context, vision: VisionConfig): void {
     const attachments = ctx.get('attachments')
     if (attachments === undefined) throw new Error('no attachment service is mounted')
     const stored = await attachments.readImage(ref, signal)
+    const apiKey = await resolveApiKeyRuntime(ctx, vision.apiKey)
     const description = await callVision(
       {
         baseUrl: vision.baseUrl,
-        apiKey: vision.apiKey,
+        apiKey,
         model: vision.model,
         timeoutMs: vision.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         systemPrompt: vision.systemPrompt,

@@ -18,6 +18,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ImageConfig } from '../config.js'
 import { DEFAULT_IMAGE_OUTPUT_DIR, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_TIMEOUT_MS, DEFAULT_MAX_REFERENCE_BYTES } from '../config.js'
+import { resolveApiKeyRuntime } from '../config.js'
 import { callImageGen, type ReferenceImage } from '../image-gen.js'
 import { sessionResolveOptions } from '../session-cwd.js'
 import { truncate } from '../vision.js'
@@ -101,10 +102,11 @@ export function applyGenerateImageTool(ctx: Context, image: ImageConfig): void {
       if (referenceImages !== undefined && image.provider !== 'dashscope') {
         throw new Error('reference_image requires the dashscope provider; set image.provider to "dashscope" to use image editing')
       }
+      const apiKey = await resolveApiKeyRuntime(ctx, image.apiKey)
       const { data, format } = await callImageGen(
         {
           baseUrl: image.baseUrl,
-          apiKey: image.apiKey,
+          apiKey,
           model: image.model,
           timeoutMs: image.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS,
           signal: exec.signal,

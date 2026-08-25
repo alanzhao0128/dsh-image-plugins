@@ -3,6 +3,9 @@
  * @module dsh-image-plugins/src/config
  */
 
+import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+
 /** OpenAI-compatible vision endpoint configuration. */
 export interface VisionConfig {
   /** Endpoint base URL, e.g. https://api.example.com/v1. */
@@ -87,4 +90,53 @@ export function resolveApiKey(value: string): string {
     throw new Error(`dsh-image-plugins: environment variable ${JSON.stringify(name)} referenced by apiKey is not set`)
   }
   return resolved
+}
+
+/**
+ * Resolve a `cred:NAME` apiKey value through the host credential seam
+ * (`ctx.credentials`, e.g. `~/.dsh/.credentials.yaml`). Non-`cred:` values
+ * pass through unchanged, so callers may chain this after {@link resolveApiKey}
+ * to accept literal, `env:`, and `cred:` forms alike.
+ *
+ * Resolution is per call: the host service re-reads its durable store each
+ * time, so a changed credential reaches the next request without a plugin
+ * restart, and the secret never needs to live in this plugin's config.
+ * @param ctx - plugin context carrying the optional credential service.
+ * @param value - configured apiKey value.
+ * @returns the resolved secret, or `value` when it is not a `cred:` reference.
+ * @throws when `cred:` names a ref but no credentials service is mounted, or
+ * the referenced credential is not configured.
+ */
+export async function resolveApiKeyFromCredentials(ctx: Context, value: string): Promise<string> {
+  if (!value.startsWith('cred:')) return value
+  const name = value.slice('cred:'.length)
+  const credentials = ctx.get('credentials')
+  if (credentials === undefined) {
+    throw new Error(
+      `dsh-image-plugins: apiKey references credential ${JSON.stringify(name)} but no credentials service is mounted`,
+    )
+  }
+  const hit = await credentials.resolve(credentialRef(name))
+  if (hit === undefined) {
+    throw new Error(
+      `dsh-image-plugins: credential ${JSON.stringify(name)} referenced by apiKey is not configured; `
+      + 'store it through the credentials service (e.g. the web Models page) or use a literal apiKey',
+    )
+  }
+  return hit.value
+}
+
+/**
+ * Resolve a configured apiKey at request time: literal values pass through,
+ * `env:NAME` reads the process environment, and `cred:NAME` resolves through
+ * the host credential seam. Call this inside the actual request path (tool
+ * execute, pre-step describe) rather than at plugin load: the credential
+ * service may not be started yet while `apply` runs, and per-operation
+ * resolution is exactly what the host seam expects.
+ * @param ctx - plugin context carrying the optional credential service.
+ * @param value - configured apiKey value.
+ * @returns the resolved secret.
+ */
+export async function resolveApiKeyRuntime(ctx: Context, value: string): Promise<string> {
+  return resolveApiKeyFromCredentials(ctx, resolveApiKey(value))
 }

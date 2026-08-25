@@ -7,6 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import * as plugin from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
 
@@ -114,4 +115,68 @@ test('registers both tools when both capabilities are configured', async () => {
   } finally {
     mounted.dispose()
   }
+})
+
+test('accepts cred: apiKey values at load and defers resolution to execution', async () => {
+  const ctx = new Context()
+  const registeredTools: string[] = []
+  let preStepListeners = 0
+  ctx.provide('tools', {
+    register(tool: { name: string }): void {
+      registeredTools.push(tool.name)
+    },
+  })
+  ctx.provide('fs', {})
+  ctx.provide('agents', {})
+  ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
+  ctx.provide('credentials', {
+    async resolve(ref: string): Promise<{ value: string; source: string } | undefined> {
+      if (ref === credentialRef('DEEPSEEK_API_KEY')) return { value: 'cred-secret', source: 'env' }
+      return undefined
+    },
+  })
+  const originalOn = ctx.on.bind(ctx)
+  ctx.on = ((event: string, listener: (...args: unknown[]) => unknown, options?: unknown) => {
+    if (event === 'agent/pre-step') preStepListeners += 1
+    return originalOn(event as never, listener as never, options as never)
+  }) as typeof ctx.on
+  const fiber = ctx.plugin(plugin as never, {
+    vision: { baseUrl: 'https://v.example.com/v1', apiKey: 'cred:DEEPSEEK_API_KEY', model: 'vision-m' },
+    autoUnderstand: false,
+  })
+  await new Promise<void>(resolve => {
+    const startedAt = Date.now()
+    const poll = (): void => {
+      if (registeredTools.length > 0 || Date.now() - startedAt > 500) {
+        resolve()
+        return
+      }
+      setTimeout(poll, 10)
+    }
+    poll()
+  })
+  try {
+    assert.deepEqual(registeredTools, ['understand_image'])
+    assert.equal(preStepListeners, 0)
+  } finally {
+    fiber?.dispose()
+  }
+})
+
+test('apply does not resolve cred: values (resolution happens per request)', async () => {
+  // The credential service is intentionally absent: at load time the plugin
+  // must not require it, because the service may not be started yet when apply
+  // runs. A cred: apiKey resolves inside the tool's execute path instead.
+  const ctx = new Context()
+  ctx.provide('tools', {
+    register(): void {},
+  })
+  ctx.provide('fs', {})
+  ctx.provide('agents', {})
+  ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
+  plugin.apply(ctx, {
+    vision: { baseUrl: 'https://v.example.com/v1', apiKey: 'cred:DEEPSEEK_API_KEY', model: 'vision-m' },
+    autoUnderstand: false,
+  })
+  // No rejection: apply() returned synchronously without touching credentials.
 })

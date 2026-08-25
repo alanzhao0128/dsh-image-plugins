@@ -5,7 +5,10 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveImage, resolveVision } from '../src/index.ts'
+import { resolveApiKeyFromCredentials, resolveApiKeyRuntime } from '../src/config.ts'
 import type { PluginConfig } from '../src/config.ts'
 
 test('disables vision when the block is absent', () => {
@@ -62,4 +65,65 @@ test('keeps the plugin inert when nothing is configured', () => {
   const config: PluginConfig = { vision: undefined, image: undefined }
   assert.equal(resolveVision(config), undefined)
   assert.equal(resolveImage(config), undefined)
+})
+
+test('passes non-cred values through the credential seam unchanged', async () => {
+  const ctx = new Context()
+  assert.equal(await resolveApiKeyFromCredentials(ctx, 'plain-secret'), 'plain-secret')
+  // env: expansion happens earlier in resolveVision (resolveApiKey); the
+  // credential seam only handles cred:, so an env: value passes through here.
+  assert.equal(await resolveApiKeyFromCredentials(ctx, 'env:SOME_VAR'), 'env:SOME_VAR')
+})
+
+test('resolves cred: values through the host credential service', async () => {
+  const ctx = new Context()
+  ctx.provide('credentials', {
+    async resolve(ref: string): Promise<{ value: string; source: string } | undefined> {
+      if (ref === credentialRef('DEEPSEEK_API_KEY')) return { value: 'cred-secret', source: 'env' }
+      return undefined
+    },
+  })
+  assert.equal(await resolveApiKeyFromCredentials(ctx, 'cred:DEEPSEEK_API_KEY'), 'cred-secret')
+})
+
+test('throws when cred: references a credential that is not configured', async () => {
+  const ctx = new Context()
+  ctx.provide('credentials', {
+    async resolve(): Promise<{ value: string; source: string } | undefined> {
+      return undefined
+    },
+  })
+  await assert.rejects(
+    () => resolveApiKeyFromCredentials(ctx, 'cred:DEEPSEEK_API_KEY'),
+    /not configured/,
+  )
+})
+
+test('throws when cred: is used but no credentials service is mounted', async () => {
+  const ctx = new Context()
+  await assert.rejects(
+    () => resolveApiKeyFromCredentials(ctx, 'cred:DEEPSEEK_API_KEY'),
+    /no credentials service is mounted/,
+  )
+})
+
+test('resolveApiKeyRuntime combines env: and cred: resolution', async () => {
+  const ctx = new Context()
+  ctx.provide('credentials', {
+    async resolve(ref: string): Promise<{ value: string; source: string } | undefined> {
+      if (ref === credentialRef('DEEPSEEK_API_KEY')) return { value: 'cred-secret', source: 'env' }
+      return undefined
+    },
+  })
+  // literal passes through
+  assert.equal(await resolveApiKeyRuntime(ctx, 'plain'), 'plain')
+  // env: expands from process.env
+  process.env.DSH_IMAGE_PLUGINS_TEST_KEY = 'env-secret'
+  try {
+    assert.equal(await resolveApiKeyRuntime(ctx, 'env:DSH_IMAGE_PLUGINS_TEST_KEY'), 'env-secret')
+  } finally {
+    delete process.env.DSH_IMAGE_PLUGINS_TEST_KEY
+  }
+  // cred: resolves through the host seam
+  assert.equal(await resolveApiKeyRuntime(ctx, 'cred:DEEPSEEK_API_KEY'), 'cred-secret')
 })

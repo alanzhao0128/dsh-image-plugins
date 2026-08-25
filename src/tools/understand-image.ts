@@ -13,6 +13,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { VisionConfig } from '../config.js'
 import { DEFAULT_MAX_IMAGE_BYTES, DEFAULT_TIMEOUT_MS, DEFAULT_VISION_PROMPT } from '../config.js'
+import { resolveApiKeyRuntime } from '../config.js'
 import { sessionResolveOptions } from '../session-cwd.js'
 import { callVision } from '../vision.js'
 
@@ -58,10 +59,11 @@ export function applyUnderstandImageTool(ctx: Context, vision: VisionConfig): vo
       const target = await fs.resolve(args.file_path, sessionResolveOptions(exec, exec.signal))
       const maxBytes = vision.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES
       const data = await fs.readBytes(target, exec.signal, maxBytes)
+      const apiKey = await resolveApiKeyRuntime(ctx, vision.apiKey)
       const description = await callVision(
         {
           baseUrl: vision.baseUrl,
-          apiKey: vision.apiKey,
+          apiKey,
           model: vision.model,
           timeoutMs: vision.timeoutMs ?? DEFAULT_TIMEOUT_MS,
           systemPrompt: vision.systemPrompt,

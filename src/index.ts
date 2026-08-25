@@ -96,6 +96,11 @@ export function resolveImage(config: PluginConfig): ImageConfig | undefined {
 
 /**
  * Register the configured capabilities for the lifetime of `ctx`.
+ *
+ * The apiKey value may still be a `cred:NAME` reference here — it is resolved
+ * per request inside each tool's execute path (see resolveApiKeyRuntime), not
+ * at load: the host credential service is not guaranteed to be started yet
+ * while `apply` runs.
  * @param ctx - plugin context; registrations are disposed with it.
  * @param config - validated plugin configuration.
  */
