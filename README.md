@@ -84,7 +84,16 @@ then re-run the `add` command. npm and tarball installs ship built artifacts and
 
 ## Configure
 
-Override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`, or pass a `--patch` overlay:
+Since 0.2.0 the plugin ships a **settings panel** (web: Settings → 图片插件 / Image Plugins): edit the vision and image endpoint blocks, and manage the two capability secrets through the official credential store. Changes apply immediately (no restart) for endpoint edits; host-code changes still need a `dsh web` restart after an upgrade.
+
+The settings panel writes the `dsh-image-plugins` namespace in `~/.dsh/settings.yaml`. Two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
+
+| Reference | Used by |
+|---|---|
+| `UNDERSTAND_IMAGE_KEY` | `understand_image` (vision endpoint key) |
+| `GENERATE_IMAGE_KEY` | `generate_image` (image-generation endpoint key) |
+
+You can also configure manually — override the `image-plugins` row (same id) in your profile's `cordis.patch.yml`, or pass a `--patch` overlay. The patch value acts as the initial (base) layer; once you save from the panel, the settings.yaml value wins:
 
 ```yaml
 - id: image-plugins
@@ -115,6 +124,7 @@ Notes:
   - a **literal** secret (`'sk-...'`),
   - `env:VARNAME` — resolved from the process environment at load,
   - `cred:NAME` — resolved through the host credential seam (`ctx.credentials`, e.g. `~/.dsh/.credentials.yaml`) **at each request** (the credential service may start after plugin load, so resolution is deferred to the request path). Requires the host's credentials service (present in the stock dsh profiles).
+  - When using the settings panel, the apiKey is automatically the fixed `cred:UNDERSTAND_IMAGE_KEY` / `cred:GENERATE_IMAGE_KEY` reference — the panel writes the secret value through the credential service, so you never handle references manually.
   - Keys never enter the session log or tool results.
 - The profile patch targets the row by id and replaces its whole config — restate every key you need.
 - Endpoints must be OpenAI-compatible: vision = `POST {baseUrl}/chat/completions` accepting `image_url` data URLs; image generation = `POST {baseUrl}/images/generations` returning `data[0].b64_json` or `data[0].url`. Anything compatible — OpenAI, 硅基流动, 智谱, 通义兼容模式, Ollama, etc. — works as-is.

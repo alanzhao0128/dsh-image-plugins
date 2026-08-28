@@ -68,8 +68,14 @@ export function defaultOutputPath(outputDir: string, format: string, prompt: str
   return `${outputDir.replace(/\/+$/, '')}/${now}-${slugify(prompt)}.${format}`
 }
 
-/** Register the generate_image tool. The generation endpoint must be configured. */
-export function applyGenerateImageTool(ctx: Context, image: ImageConfig): void {
+/**
+ * Register the generate_image tool. The generation endpoint must be configured.
+ * @param ctx - plugin context.
+ * @param getImage - resolves the current image configuration on every call,
+ * so settings edits reach the next execution without a restart. Returns
+ * undefined while the image block is not (fully) configured.
+ */
+export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig | undefined): void {
   ctx.tools.register(defineTool({
     name: 'generate_image',
     description: 'Generate an image from a text prompt using the configured image-generation model, save it into the workspace, and return the saved file path.',
@@ -94,6 +100,10 @@ export function applyGenerateImageTool(ctx: Context, image: ImageConfig): void {
       ],
     },
     async execute(args, exec) {
+      const image = getImage()
+      if (image === undefined) {
+        throw new Error('generate_image: image generation is not configured; configure it in the image-plugins settings')
+      }
       if (args.prompt.trim() === '') throw new Error('prompt must be a non-empty string')
       const resolveOptions = sessionResolveOptions(exec, exec.signal)
       const referenceImages = args.reference_image === undefined

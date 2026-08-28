@@ -26,8 +26,14 @@ const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
   '.gif': 'image/gif',
 }
 
-/** Register the understand_image tool. The vision endpoint must be configured. */
-export function applyUnderstandImageTool(ctx: Context, vision: VisionConfig): void {
+/**
+ * Register the understand_image tool. The vision endpoint must be configured.
+ * @param ctx - plugin context.
+ * @param getVision - resolves the current vision configuration on every call,
+ * so settings edits reach the next execution without a restart. Returns
+ * undefined while the vision block is not (fully) configured.
+ */
+export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionConfig | undefined): void {
   ctx.tools.register(defineTool({
     name: 'understand_image',
     description: 'Understand an image file: send it to the configured vision model and return its text description. Use it when the user references an image file (screenshot, chart, photo) and asks what it shows or asks a question about its content.',
@@ -49,6 +55,10 @@ export function applyUnderstandImageTool(ctx: Context, vision: VisionConfig): vo
       ],
     },
     async execute(args, exec) {
+      const vision = getVision()
+      if (vision === undefined) {
+        throw new Error('understand_image: vision is not configured; configure the vision endpoint in the image-plugins settings')
+      }
       if (args.file_path.trim() === '') throw new Error('file_path must be a non-empty string')
       const mediaType = IMAGE_EXTENSIONS[extname(args.file_path).toLowerCase()]
       if (mediaType === undefined) {

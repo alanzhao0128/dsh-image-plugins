@@ -8,8 +8,53 @@ import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveImage, resolveVision } from '../src/index.ts'
-import { resolveApiKeyFromCredentials, resolveApiKeyRuntime } from '../src/config.ts'
+import {
+  GENERATE_IMAGE_REF,
+  UNDERSTAND_IMAGE_REF,
+  resolveApiKeyFromCredentials,
+  resolveApiKeyRuntime,
+  resolveConfig,
+} from '../src/config.ts'
 import type { PluginConfig } from '../src/config.ts'
+
+test('resolveConfig fills defaults for present blocks and keeps absent blocks absent', () => {
+  const resolved = resolveConfig({})
+  assert.equal(resolved.vision, undefined)
+  assert.equal(resolved.image, undefined)
+  assert.equal(resolved.autoUnderstand, false)
+
+  const partial = resolveConfig({
+    vision: { baseUrl: 'https://v.example.com', model: 'm' },
+  })
+  assert.equal(partial.vision?.baseUrl, 'https://v.example.com')
+  assert.equal(partial.vision?.model, 'm')
+  // Default apiKey references the fixed credential refs.
+  assert.equal(partial.vision?.apiKey, `cred:${UNDERSTAND_IMAGE_REF}`)
+  assert.equal(partial.image, undefined)
+})
+
+test('resolveConfig defaults the image block and its credential ref', () => {
+  const resolved = resolveConfig({
+    image: { baseUrl: 'https://i.example.com', model: 'img-m' },
+  })
+  assert.equal(resolved.image?.provider, 'openai')
+  assert.equal(resolved.image?.apiKey, `cred:${GENERATE_IMAGE_REF}`)
+  assert.equal(resolved.image?.timeoutMs, undefined) // stays undefined; tool applies DEFAULT_IMAGE_TIMEOUT_MS
+  assert.equal(resolved.vision, undefined)
+})
+
+test('resolveConfig preserves explicitly set values over defaults', () => {
+  const resolved = resolveConfig({
+    vision: { baseUrl: 'https://v.example.com', apiKey: 'plain-key', model: 'm', timeoutMs: 1234 },
+    image: { baseUrl: 'https://i.example.com', apiKey: 'env:K', model: 'im', provider: 'dashscope', timeoutMs: 4321 },
+    autoUnderstand: true,
+  })
+  assert.equal(resolved.vision?.apiKey, 'plain-key')
+  assert.equal(resolved.vision?.timeoutMs, 1234)
+  assert.equal(resolved.image?.provider, 'dashscope')
+  assert.equal(resolved.image?.timeoutMs, 4321)
+  assert.equal(resolved.autoUnderstand, true)
+})
 
 test('disables vision when the block is absent', () => {
   assert.equal(resolveVision({}), undefined)

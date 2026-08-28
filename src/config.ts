@@ -4,7 +4,16 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+
+/**
+ * Fixed credential-reference names backing the two capabilities. The settings
+ * panel writes the actual secret values into the host credential store under
+ * these names; plugin config only ever carries `cred:NAME` references.
+ */
+export const UNDERSTAND_IMAGE_REF = 'UNDERSTAND_IMAGE_KEY'
+export const GENERATE_IMAGE_REF = 'GENERATE_IMAGE_KEY'
 
 /** OpenAI-compatible vision endpoint configuration. */
 export interface VisionConfig {
@@ -139,4 +148,87 @@ export async function resolveApiKeyFromCredentials(ctx: Context, value: string):
  */
 export async function resolveApiKeyRuntime(ctx: Context, value: string): Promise<string> {
   return resolveApiKeyFromCredentials(ctx, resolveApiKey(value))
+}
+
+/**
+ * Schemastery validation for the settings-managed configuration. Every field
+ * is optional so an unconfigured install stays inert; `resolveConfig` applies
+ * explicit defaults (the only place defaults live).
+ */
+export const Config: z<PluginConfig> = z.object({
+  vision: z.object({
+    baseUrl: z.string(),
+    apiKey: z.string(),
+    model: z.string(),
+    timeoutMs: z.number(),
+    maxImageBytes: z.number(),
+    systemPrompt: z.string(),
+    defaultPrompt: z.string(),
+  }),
+  image: z.object({
+    baseUrl: z.string(),
+    apiKey: z.string(),
+    model: z.string(),
+    provider: z.union(['openai', 'dashscope']),
+    timeoutMs: z.number(),
+    defaultSize: z.string(),
+    outputDir: z.string(),
+    maxReferenceBytes: z.number(),
+  }),
+  // EXPERIMENTAL, undocumented: enables the dormant pre-step auto-understand
+  // rewrite (src/pre-step.ts). Keep false; the supported surface is the two
+  // model tools.
+  autoUnderstand: z.boolean(),
+})
+
+/** Defaults mirroring the historical hardcoded constants; upgrades are no-ops. */
+export const DEFAULTS: PluginConfig = {
+  vision: {
+    baseUrl: '',
+    apiKey: `cred:${UNDERSTAND_IMAGE_REF}`,
+    model: '',
+  },
+  image: {
+    baseUrl: '',
+    apiKey: `cred:${GENERATE_IMAGE_REF}`,
+    model: '',
+    provider: DEFAULT_IMAGE_PROVIDER,
+  },
+  autoUnderstand: false,
+}
+
+/**
+ * Normalize and default a raw configuration. Missing capability blocks are
+ * left absent (a capability registers only when fully configured); present
+ * blocks receive defaults for every omitted field.
+ */
+export function resolveConfig(config: PluginConfig = {}): PluginConfig {
+  const vision = config.vision === undefined
+    ? undefined
+    : {
+        baseUrl: config.vision.baseUrl ?? '',
+        apiKey: config.vision.apiKey ?? `cred:${UNDERSTAND_IMAGE_REF}`,
+        model: config.vision.model ?? '',
+        ...(config.vision.timeoutMs === undefined ? {} : { timeoutMs: config.vision.timeoutMs }),
+        ...(config.vision.maxImageBytes === undefined ? {} : { maxImageBytes: config.vision.maxImageBytes }),
+        ...(config.vision.systemPrompt === undefined ? {} : { systemPrompt: config.vision.systemPrompt }),
+        ...(config.vision.defaultPrompt === undefined ? {} : { defaultPrompt: config.vision.defaultPrompt }),
+      }
+  const image = config.image === undefined
+    ? undefined
+    : {
+        baseUrl: config.image.baseUrl ?? '',
+        apiKey: config.image.apiKey ?? `cred:${GENERATE_IMAGE_REF}`,
+        model: config.image.model ?? '',
+        provider: config.image.provider ?? DEFAULT_IMAGE_PROVIDER,
+        ...(config.image.timeoutMs === undefined ? {} : { timeoutMs: config.image.timeoutMs }),
+        ...(config.image.defaultSize === undefined ? {} : { defaultSize: config.image.defaultSize }),
+        ...(config.image.outputDir === undefined ? {} : { outputDir: config.image.outputDir }),
+        ...(config.image.maxReferenceBytes === undefined ? {} : { maxReferenceBytes: config.image.maxReferenceBytes }),
+      }
+  return {
+    ...vision === undefined ? {} : { vision },
+    ...image === undefined ? {} : { image },
+    autoUnderstand: config.autoUnderstand ?? false,
+  }
 }

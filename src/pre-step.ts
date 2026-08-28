@@ -87,11 +87,16 @@ export async function rewriteImageMessages(
 /**
  * Register the auto-understand waterfall for the lifetime of `ctx`.
  * @param ctx - plugin context; the listener is disposed with it.
- * @param vision - vision endpoint configuration; must be fully configured.
+ * @param getVision - resolves the current vision configuration per description,
+ * so settings edits apply without a restart.
  */
-export function applyAutoUnderstand(ctx: Context, vision: VisionConfig): void {
+export function applyAutoUnderstand(ctx: Context, getVision: () => VisionConfig | undefined): void {
   const cache = new Map<string, string>()
   const describe: DescribeImage = async (ref, signal) => {
+    const vision = getVision()
+    if (vision === undefined) {
+      throw new Error('auto-understand: vision is not configured; configure the vision endpoint in the image-plugins settings')
+    }
     const cacheKey = String(ref.attachmentId)
     const cached = cache.get(cacheKey)
     if (cached !== undefined) return cached
