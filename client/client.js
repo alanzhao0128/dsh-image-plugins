@@ -169,7 +169,7 @@ window.__ModuleLoader__.load({
       return get;
     };
 
-    const inject = ['connection', 'slots', 'locale', 'settingsScope'];
+    const inject = ['connection', 'slots', 'locale', 'settingsScope', 'remote', 'remote.credentials'];
 
     function apply(ctx) {
       ctx.effect(
@@ -178,6 +178,7 @@ window.__ModuleLoader__.load({
       );
 
       const connection = ctx.get('connection');
+      const remote = ctx.get('remote');
       let scope = null;
       try { scope = ctx.get('settingsScope').bind({ namespace: SETTINGS_NS }); } catch { /* absent */ }
       const cfg = makeScopeReader(scope, DEFAULTS);
@@ -189,7 +190,7 @@ window.__ModuleLoader__.load({
           order: 90,
           label: () => (ctx.locale.getLocale().active === 'zh' ? '图片插件' : 'Image Plugins'),
           locale: NS,
-          inject: () => ({ connection, scope }),
+          inject: () => ({ connection, scope, remote }),
         },
         SettingsPage,
       ));
@@ -227,7 +228,7 @@ window.__ModuleLoader__.load({
      * plus a credentials section that writes secrets through the official
      * credential seam.
      */
-    function SettingsPage({ t, connection, scope }) {
+    function SettingsPage({ t, connection, scope, remote }) {
       const dict = zh;
       const tr = (key) => (t ? t(key) : dict[key]);
       const [draft, setDraft] = useState({});
@@ -304,13 +305,9 @@ window.__ModuleLoader__.load({
           }).filter(Boolean);
           if (ops.length === 0) { setSaving(false); return; }
           const revision = scope.getSnapshot().revision;
-          const response = await connection.api.settings.mutate({
-            ns: SETTINGS_NS,
-            ops,
-            ...(revision === undefined ? {} : { expectedRevision: revision }),
-          });
-          if (!response.result.ok) setFailed(true);
-          else { setDraft({}); setSaved(true); }
+          await scope.mutate(ops, revision);
+          setDraft({});
+          setSaved(true);
         } catch {
           setFailed(true);
         } finally {
@@ -326,8 +323,8 @@ window.__ModuleLoader__.load({
         setCredFailed((f) => ({ ...f, [ref]: false }));
         setCredSaved((s) => ({ ...s, [ref]: false }));
         try {
-          const { result } = await connection.api.credentials.set({ ref, value: val });
-          if (!result.ok) {
+          const response = await remote.credentials.set(ref, val);
+          if (!response.ok) {
             setCredFailed((f) => ({ ...f, [ref]: true }));
           } else {
             setCredDrafts((d) => ({ ...d, [ref]: '' }));

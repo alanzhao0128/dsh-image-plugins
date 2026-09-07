@@ -20,7 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsSectionHooks } from '@deepseek-ai/dsh-settings'
 import {
   Config,
   GENERATE_IMAGE_REF,
@@ -38,6 +38,9 @@ export { Config } from './config.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'dsh-image-plugins'
+
+/** Settings namespace for this plugin's user configuration (settings.yaml section). */
+export const SETTINGS_NAMESPACE = 'dsh-image-plugins'
 
 /** Services this plugin needs: the tool registry, the fs seam, and the agent registry. */
 export const inject = ['tools', 'fs', 'agents', 'connection', 'credentials']
@@ -98,11 +101,16 @@ let live: PluginConfig = {}
 export function apply(ctx: Context, config: PluginConfig): void {
   let source = (): PluginConfig => config
   live = resolveConfig(config)
-  // installSettingsSection injects the settings service itself and no-ops when
-  // none is mounted, so this is safe in minimal hosts and tests alike.
-  installSettingsSection(ctx, settingsNamespace('dsh-image-plugins'), Config, config, {
+  // Settings-managed config (dsh ≥ 0.1.2): register the namespace through the
+  // settings service when one is mounted; without one the plugin keeps using
+  // the composition entry (config) directly. The scope's resolved value layers
+  // schema defaults < composition base < user document section.
+  const hooks: SettingsSectionHooks<PluginConfig> = {
     setSource: (get: () => PluginConfig) => { source = get },
     onChange: () => { live = resolveConfig(source()) },
+  }
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, hooks)
   })
   // Getters re-resolve the live config on every call, so settings edits reach
   // the next tool execution without a restart. resolveVision/resolveImage

@@ -9,9 +9,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { SettingsProvider, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import * as plugin from '../src/index.ts'
+import { SETTINGS_NAMESPACE } from '../src/index.ts'
 import { GENERATE_IMAGE_REF, UNDERSTAND_IMAGE_REF } from '../src/config.ts'
 
 /** In-memory settings provider implementing the abstract storage seam. */
@@ -86,7 +87,7 @@ async function mountWithSettings(
 test('settings initial values override the patch base config', async () => {
   const mounted = await mountWithSettings(
     {
-      [settingsNamespace('dsh-image-plugins')]: {
+      [SETTINGS_NAMESPACE]: {
         vision: { baseUrl: 'https://initial.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'initial-model' },
       },
     },
@@ -123,7 +124,7 @@ test('settings edits apply to the live config without a restart', async () => {
       return { configured: ref === credentialRef(UNDERSTAND_IMAGE_REF), writable: true, source: 'env' }
     },
   })
-  const ns = settingsNamespace('dsh-image-plugins')
+  const ns = SETTINGS_NAMESPACE
   await ctx.plugin(MemorySettings as never, {
     [ns]: {
       vision: { baseUrl: 'https://a.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'model-a' },
@@ -143,7 +144,7 @@ test('settings edits apply to the live config without a restart', async () => {
 test('RPC reports credential state per fixed ref without leaking values', async () => {
   const mounted = await mountWithSettings(
     {
-      [settingsNamespace('dsh-image-plugins')]: {
+      [SETTINGS_NAMESPACE]: {
         vision: { baseUrl: 'https://v.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'v' },
         image: { baseUrl: 'https://i.example.com', apiKey: `cred:${GENERATE_IMAGE_REF}`, model: 'i' },
       },
