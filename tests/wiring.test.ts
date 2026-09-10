@@ -88,6 +88,36 @@ test('registers both tools even with an empty config (they resolve live config p
   }
 })
 
+test('does not register understand_image when vision.enabled is false', async () => {
+  const mounted = await mount({ vision: { enabled: false } })
+  try {
+    assert.ok(!mounted.registeredTools.includes('understand_image'))
+    assert.ok(mounted.registeredTools.includes('generate_image'))
+  } finally {
+    mounted.dispose()
+  }
+})
+
+test('does not register generate_image when image.enabled is false', async () => {
+  const mounted = await mount({ image: { enabled: false } })
+  try {
+    assert.ok(!mounted.registeredTools.includes('generate_image'))
+    assert.ok(mounted.registeredTools.includes('understand_image'))
+  } finally {
+    mounted.dispose()
+  }
+})
+
+test('keeps the status route while both capabilities are disabled', async () => {
+  const mounted = await mount({ vision: { enabled: false }, image: { enabled: false } })
+  try {
+    assert.deepEqual(mounted.registeredTools, [])
+    assert.ok(mounted.fetchRoutes.includes('/api/image-plugin-status/snapshot'))
+  } finally {
+    mounted.dispose()
+  }
+})
+
 test('registers the pre-step listener only when autoUnderstand is true', async () => {
   const mounted = await mount({ autoUnderstand: true })
   try {

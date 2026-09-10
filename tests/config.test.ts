@@ -28,9 +28,23 @@ test('resolveConfig fills defaults for present blocks and keeps absent blocks ab
   })
   assert.equal(partial.vision?.baseUrl, 'https://v.example.com')
   assert.equal(partial.vision?.model, 'm')
-  // Default apiKey references the fixed credential refs.
+  // Capabilities default to enabled; apiKey defaults to the fixed refs.
+  assert.equal(partial.vision?.enabled, true)
   assert.equal(partial.vision?.apiKey, `cred:${UNDERSTAND_IMAGE_REF}`)
   assert.equal(partial.image, undefined)
+})
+
+test('resolveConfig preserves explicit enabled flags and defaults absent ones to true', () => {
+  const resolved = resolveConfig({
+    vision: { enabled: false, baseUrl: 'https://v.example.com', model: 'm' },
+    image: { baseUrl: 'https://i.example.com', model: 'img-m' },
+  })
+  assert.equal(resolved.vision?.enabled, false)
+  assert.equal(resolved.image?.enabled, true)
+  assert.equal(resolved.image?.provider, 'openai')
+  assert.equal(resolved.image?.apiKey, `cred:${GENERATE_IMAGE_REF}`)
+  // The block stays present even when disabled (the switch is part of it).
+  assert.ok(resolved.vision !== undefined)
 })
 
 test('resolveConfig defaults the image block and its credential ref', () => {
@@ -77,6 +91,9 @@ test('resolves a complete vision block and expands env: keys', () => {
     assert.equal(vision?.baseUrl, 'https://x/v1')
     assert.equal(vision?.apiKey, 'secret')
     assert.equal(vision?.model, 'm')
+    assert.equal(vision?.enabled, true) // defaults to enabled when omitted
+    const disabled = resolveVision({ vision: { enabled: false, baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' } })
+    assert.equal(disabled?.enabled, false)
   } finally {
     delete process.env.DSH_IMAGE_PLUGINS_TEST_KEY
   }
@@ -95,6 +112,9 @@ test('normalizes the image block the same way', () => {
   assert.throws(() => resolveImage({ image: { model: 'm' } }), /together/)
   const image = resolveImage({ image: { baseUrl: 'https://x', apiKey: 'k', model: 'm', defaultSize: '512x512' } })
   assert.equal(image?.defaultSize, '512x512')
+  assert.equal(image?.enabled, true) // defaults to enabled when omitted
+  const disabled = resolveImage({ image: { enabled: false, baseUrl: 'https://x', apiKey: 'k', model: 'm' } })
+  assert.equal(disabled?.enabled, false)
 })
 
 test('accepts the dashscope provider and rejects unknown providers', () => {

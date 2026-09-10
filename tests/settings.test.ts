@@ -40,8 +40,8 @@ interface RpcResult {
   ok: boolean
   value?: {
     credentials?: Record<string, { configured?: boolean; writable?: boolean; source?: string | null }>
-    vision?: { baseUrl?: string; model?: string; apiKeyRef?: string }
-    image?: { provider?: string; baseUrl?: string; model?: string; apiKeyRef?: string }
+    vision?: { enabled?: boolean; baseUrl?: string; model?: string; apiKeyRef?: string }
+    image?: { enabled?: boolean; provider?: string; baseUrl?: string; model?: string; apiKeyRef?: string }
     autoUnderstand?: boolean
   }
 }
@@ -124,8 +124,10 @@ test('settings initial values override the patch base config', async () => {
     assert.equal(result.ok, true)
     assert.equal(result.value?.vision?.model, 'initial-model')
     assert.equal(result.value?.vision?.baseUrl, 'https://initial.example.com')
-    // image block absent → undefined (not an error)
-    assert.equal(result.value?.image, undefined)
+    assert.equal(result.value?.vision?.enabled, true) // defaults to enabled
+    // image block absent → reported (enabled true) with undefined detail fields
+    assert.equal(result.value?.image?.enabled, true)
+    assert.equal(result.value?.image?.baseUrl, undefined)
   } finally {
     mounted.dispose()
   }
@@ -184,7 +186,58 @@ test('RPC reports credential state per fixed ref without leaking values', async 
     assert.ok(!('key' in (credentials[UNDERSTAND_IMAGE_REF] as object)))
     assert.equal(result.value?.vision?.apiKeyRef, `cred:${UNDERSTAND_IMAGE_REF}`)
     assert.equal(result.value?.image?.provider, 'openai')
+    assert.equal(result.value?.vision?.enabled, true)
+    assert.equal(result.value?.image?.enabled, true)
   } finally {
     mounted.dispose()
+  }
+})
+
+test('disabling a capability via settings unregisters its tool without a restart', async () => {
+  const ctx = new Context()
+  const conn = makeConnectionStub()
+  const registeredTools: string[] = []
+  ctx.provide('tools', {
+    register(tool: { name: string }): () => void {
+      registeredTools.push(tool.name)
+      return () => {
+        const i = registeredTools.indexOf(tool.name)
+        if (i >= 0) registeredTools.splice(i, 1)
+      }
+    },
+  })
+  ctx.provide('fs', {})
+  ctx.provide('agents', {})
+  ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
+  ctx.provide('connection', conn.stub as never)
+  ctx.provide('credentials', {
+    async describe(ref: string): Promise<{ configured: boolean; writable: boolean; source: string }> {
+      return { configured: ref === credentialRef(UNDERSTAND_IMAGE_REF), writable: true, source: 'env' }
+    },
+  })
+  const ns = SETTINGS_NAMESPACE
+  await ctx.plugin(MemorySettings as never, {
+    [ns]: {
+      vision: { enabled: true, baseUrl: 'https://v.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'v' },
+      image: { enabled: true, baseUrl: 'https://i.example.com', apiKey: `cred:${GENERATE_IMAGE_REF}`, model: 'i' },
+    },
+  })
+  const fiber = ctx.plugin(plugin as never, {})
+  await new Promise<void>(resolve => setTimeout(resolve, 400))
+  try {
+    assert.ok(registeredTools.includes('understand_image'))
+    assert.ok(registeredTools.includes('generate_image'))
+    const settings = ctx.get('settings')
+    await settings.mutate(ns, [{ op: 'set', path: ['vision', 'enabled'], value: false }])
+    await new Promise<void>(resolve => setTimeout(resolve, 300))
+    // understand_image is unregistered immediately; generate_image stays.
+    assert.ok(!registeredTools.includes('understand_image'))
+    assert.ok(registeredTools.includes('generate_image'))
+    // The status route reports the flipped switch.
+    const result = await conn.rpc()
+    assert.equal(result.value?.vision?.enabled, false)
+    assert.equal(result.value?.image?.enabled, true)
+  } finally {
+    fiber?.dispose()
   }
 })

@@ -32,9 +32,11 @@ const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
  * @param getVision - resolves the current vision configuration on every call,
  * so settings edits reach the next execution without a restart. Returns
  * undefined while the vision block is not (fully) configured.
+ * @returns a disposer that unregisters the tool (no-op when the underlying
+ * registry exposes none, e.g. in tests).
  */
-export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionConfig | undefined): void {
-  ctx.tools.register(defineTool({
+export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionConfig | undefined): () => void {
+  const disposer = ctx.tools.register(defineTool({
     name: 'understand_image',
     description: 'Understand an image file: send it to the configured vision model and return its text description. Use it when the user references an image file (screenshot, chart, photo) and asks what it shows or asks a question about its content.',
     parameters: {
@@ -58,6 +60,12 @@ export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionCo
       const vision = getVision()
       if (vision === undefined) {
         throw new Error('understand_image: vision is not configured; configure the vision endpoint in the image-plugins settings')
+      }
+      // Belt-and-suspenders on top of registration: an in-flight call that was
+      // dispatched just as the switch flipped (or a cached tool list) must fail
+      // closed instead of leaking a request to the endpoint.
+      if (vision.enabled === false) {
+        throw new Error('understand_image: image understanding is disabled; enable it in the image-plugins settings')
       }
       if (args.file_path.trim() === '') throw new Error('file_path must be a non-empty string')
       const mediaType = IMAGE_EXTENSIONS[extname(args.file_path).toLowerCase()]
@@ -93,4 +101,5 @@ export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionCo
       }
     },
   }))
+  return () => { disposer?.() }
 }

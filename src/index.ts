@@ -116,7 +116,7 @@ export function resolveVision(config: PluginConfig): VisionConfig | undefined {
   if (baseUrl === '' || apiKey === '' || model === '') {
     throw new Error('dsh-image-plugins: vision requires baseUrl, apiKey, and model together')
   }
-  return { ...raw, baseUrl, apiKey: resolveApiKey(apiKey), model }
+  return { ...raw, baseUrl, apiKey: resolveApiKey(apiKey), model, enabled: raw.enabled ?? true }
 }
 
 /** Normalize the image block; see {@link resolveVision}. Exported for unit tests. */
@@ -134,7 +134,7 @@ export function resolveImage(config: PluginConfig): ImageConfig | undefined {
   if (provider !== 'openai' && provider !== 'dashscope') {
     throw new Error(`dsh-image-plugins: image.provider must be "openai" or "dashscope", got ${JSON.stringify(provider)}`)
   }
-  return { ...raw, baseUrl, apiKey: resolveApiKey(apiKey), model, provider }
+  return { ...raw, baseUrl, apiKey: resolveApiKey(apiKey), model, provider, enabled: raw.enabled ?? true }
 }
 
 /** Live settings-managed configuration; re-resolved on every settings change. */
@@ -162,13 +162,6 @@ export function apply(ctx: Context, config: PluginConfig): void {
   // settings service when one is mounted; without one the plugin keeps using
   // the composition entry (config) directly. The scope's resolved value layers
   // schema defaults < composition base < user document section.
-  const hooks: SettingsSectionHooks<PluginConfig> = {
-    setSource: (get: () => PluginConfig) => { source = get },
-    onChange: () => { live = resolveConfig(source()) },
-  }
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, hooks)
-  })
   // Getters re-resolve the live config on every call, so settings edits reach
   // the next tool execution without a restart. resolveVision/resolveImage
   // return undefined for unconfigured blocks; tools then fail with a clear
@@ -176,9 +169,43 @@ export function apply(ctx: Context, config: PluginConfig): void {
   // them at any time).
   const getVision = (): VisionConfig | undefined => resolveVision(live)
   const getImage = (): ImageConfig | undefined => resolveImage(live)
-  applyUnderstandImageTool(ctx, getVision)
-  applyGenerateImageTool(ctx, getImage)
-  if (live.autoUnderstand !== false) applyAutoUnderstand(ctx, getVision)
+  // Capability switches: each tool registers only while its block is enabled
+  // (default true), and re-registers/unregisters as the panel flips the
+  // switch — the model sees the tool only while it is enabled. The tools also
+  // re-check `enabled` inside execute, so an in-flight call dispatched just as
+  // the switch flipped fails closed.
+  let disposeVision: (() => void) | undefined
+  let disposeImage: (() => void) | undefined
+  const syncEnabled = (): void => {
+    const wantVision = live.vision?.enabled !== false
+    if (wantVision && disposeVision === undefined) {
+      disposeVision = applyUnderstandImageTool(ctx, getVision)
+    } else if (!wantVision && disposeVision !== undefined) {
+      disposeVision()
+      disposeVision = undefined
+    }
+    const wantImage = live.image?.enabled !== false
+    if (wantImage && disposeImage === undefined) {
+      disposeImage = applyGenerateImageTool(ctx, getImage)
+    } else if (!wantImage && disposeImage !== undefined) {
+      disposeImage()
+      disposeImage = undefined
+    }
+  }
+  const hooks: SettingsSectionHooks<PluginConfig> = {
+    setSource: (get: () => PluginConfig) => { source = get },
+    onChange: () => {
+      live = resolveConfig(source())
+      syncEnabled()
+    },
+  }
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, hooks)
+  })
+  syncEnabled()
+  if (live.autoUnderstand !== false && live.vision?.enabled !== false) {
+    applyAutoUnderstand(ctx, getVision)
+  }
 
   const connection = ctx.get('connection')
   if (connection !== undefined && typeof connection?.fetch?.register === 'function') {
@@ -217,16 +244,21 @@ export function apply(ctx: Context, config: PluginConfig): void {
             [UNDERSTAND_IMAGE_REF]: understand,
             [GENERATE_IMAGE_REF]: generate,
           },
-          vision: vision === undefined ? undefined : {
-            baseUrl: vision.baseUrl,
-            model: vision.model,
-            apiKeyRef: vision.apiKey.startsWith('cred:') ? vision.apiKey : undefined,
+          // Blocks are always reported (enabled state matters even before the
+          // endpoint is configured); detail fields are undefined while a block
+          // is not (fully) configured.
+          vision: {
+            enabled: live.vision?.enabled !== false,
+            baseUrl: vision?.baseUrl,
+            model: vision?.model,
+            apiKeyRef: vision !== undefined && vision.apiKey.startsWith('cred:') ? vision.apiKey : undefined,
           },
-          image: image === undefined ? undefined : {
-            provider: image.provider ?? 'openai',
-            baseUrl: image.baseUrl,
-            model: image.model,
-            apiKeyRef: image.apiKey.startsWith('cred:') ? image.apiKey : undefined,
+          image: {
+            enabled: live.image?.enabled !== false,
+            provider: image?.provider ?? 'openai',
+            baseUrl: image?.baseUrl,
+            model: image?.model,
+            apiKeyRef: image !== undefined && image.apiKey.startsWith('cred:') ? image.apiKey : undefined,
           },
           autoUnderstand: live.autoUnderstand ?? false,
           updatedAt: Date.now(),

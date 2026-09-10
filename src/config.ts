@@ -17,6 +17,12 @@ export const GENERATE_IMAGE_REF = 'GENERATE_IMAGE_KEY'
 
 /** OpenAI-compatible vision endpoint configuration. */
 export interface VisionConfig {
+  /**
+   * Capability switch: when false, understand_image is not registered (the
+   * model never sees it) and the dormant auto-understand path is inert.
+   * Defaults to true.
+   */
+  enabled?: boolean
   /** Endpoint base URL, e.g. https://api.example.com/v1. */
   baseUrl: string
   /** Bearer API key; a literal value or `env:NAME` for process.env.NAME. */
@@ -38,6 +44,11 @@ export type ImageGenProvider = 'openai' | 'dashscope'
 
 /** OpenAI-compatible image-generation endpoint configuration. */
 export interface ImageConfig {
+  /**
+   * Capability switch: when false, generate_image is not registered (the
+   * model never sees it). Defaults to true.
+   */
+  enabled?: boolean
   /** Endpoint base URL. For `openai`: e.g. https://api.example.com/v1; for `dashscope`: https://dashscope.aliyuncs.com (a /compatible-mode/v1 suffix is tolerated). */
   baseUrl: string
   /** Bearer API key; a literal value or `env:NAME` for process.env.NAME. */
@@ -157,6 +168,7 @@ export async function resolveApiKeyRuntime(ctx: Context, value: string): Promise
  */
 export const Config: z<PluginConfig> = z.object({
   vision: z.object({
+    enabled: z.boolean(),
     baseUrl: z.string(),
     apiKey: z.string(),
     model: z.string(),
@@ -166,6 +178,7 @@ export const Config: z<PluginConfig> = z.object({
     defaultPrompt: z.string(),
   }),
   image: z.object({
+    enabled: z.boolean(),
     baseUrl: z.string(),
     apiKey: z.string(),
     model: z.string(),
@@ -184,11 +197,13 @@ export const Config: z<PluginConfig> = z.object({
 /** Defaults mirroring the historical hardcoded constants; upgrades are no-ops. */
 export const DEFAULTS: PluginConfig = {
   vision: {
+    enabled: true,
     baseUrl: '',
     apiKey: `cred:${UNDERSTAND_IMAGE_REF}`,
     model: '',
   },
   image: {
+    enabled: true,
     baseUrl: '',
     apiKey: `cred:${GENERATE_IMAGE_REF}`,
     model: '',
@@ -206,6 +221,7 @@ export function resolveConfig(config: PluginConfig = {}): PluginConfig {
   const vision = config.vision === undefined
     ? undefined
     : {
+        enabled: config.vision.enabled ?? true,
         baseUrl: config.vision.baseUrl ?? '',
         apiKey: config.vision.apiKey ?? `cred:${UNDERSTAND_IMAGE_REF}`,
         model: config.vision.model ?? '',
@@ -217,6 +233,7 @@ export function resolveConfig(config: PluginConfig = {}): PluginConfig {
   const image = config.image === undefined
     ? undefined
     : {
+        enabled: config.image.enabled ?? true,
         baseUrl: config.image.baseUrl ?? '',
         apiKey: config.image.apiKey ?? `cred:${GENERATE_IMAGE_REF}`,
         model: config.image.model ?? '',

@@ -97,6 +97,9 @@ export function applyAutoUnderstand(ctx: Context, getVision: () => VisionConfig 
     if (vision === undefined) {
       throw new Error('auto-understand: vision is not configured; configure the vision endpoint in the image-plugins settings')
     }
+    if (vision.enabled === false) {
+      throw new Error('auto-understand: image understanding is disabled; enable it in the image-plugins settings')
+    }
     const cacheKey = String(ref.attachmentId)
     const cached = cache.get(cacheKey)
     if (cached !== undefined) return cached

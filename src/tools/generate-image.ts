@@ -74,9 +74,11 @@ export function defaultOutputPath(outputDir: string, format: string, prompt: str
  * @param getImage - resolves the current image configuration on every call,
  * so settings edits reach the next execution without a restart. Returns
  * undefined while the image block is not (fully) configured.
+ * @returns a disposer that unregisters the tool (no-op when the underlying
+ * registry exposes none, e.g. in tests).
  */
-export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig | undefined): void {
-  ctx.tools.register(defineTool({
+export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig | undefined): () => void {
+  const disposer = ctx.tools.register(defineTool({
     name: 'generate_image',
     description: 'Generate an image from a text prompt using the configured image-generation model, save it into the workspace, and return the saved file path.',
     parameters: {
@@ -103,6 +105,12 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       const image = getImage()
       if (image === undefined) {
         throw new Error('generate_image: image generation is not configured; configure it in the image-plugins settings')
+      }
+      // Belt-and-suspenders on top of registration: an in-flight call that was
+      // dispatched just as the switch flipped (or a cached tool list) must fail
+      // closed instead of leaking a request to the endpoint.
+      if (image.enabled === false) {
+        throw new Error('generate_image: image generation is disabled; enable it in the image-plugins settings')
       }
       if (args.prompt.trim() === '') throw new Error('prompt must be a non-empty string')
       const resolveOptions = sessionResolveOptions(exec, exec.signal)
@@ -140,4 +148,5 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       return { card: 'generic', title: `Generate image: ${truncate(args.prompt, 60)}` }
     },
   }))
+  return () => { disposer?.() }
 }

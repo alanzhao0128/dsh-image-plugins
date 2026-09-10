@@ -32,6 +32,8 @@ window.__ModuleLoader__.load({
       'settings.intro': '配置图片理解与图像生成的端点。凭据通过官方凭据服务写入 ~/.dsh/.credentials.yaml，界面不会显示已保存的密钥。改动保存后即时生效。',
       'settings.group.vision': '视觉理解',
       'settings.group.image': '图像生成',
+      'settings.vision.enabled': '启用视觉理解',
+      'settings.vision.enabledHint': '关闭后 understand_image 工具对模型不可见，本组其他配置不可编辑',
       'settings.vision.baseUrl': '端点地址',
       'settings.vision.baseUrlHint': 'OpenAI 兼容 chat/completions 端点，如 https://api.deepseek.com',
       'settings.vision.model': '模型',
@@ -46,6 +48,8 @@ window.__ModuleLoader__.load({
       'settings.vision.defaultPromptHint': '模型未给指令时使用的默认描述指令',
       'settings.image.provider': '提供方',
       'settings.image.providerHint': 'openai（OpenAI 兼容）或 dashscope（百炼原生）',
+      'settings.image.enabled': '启用图像生成',
+      'settings.image.enabledHint': '关闭后 generate_image 工具对模型不可见，本组其他配置不可编辑',
       'settings.image.baseUrl': '端点地址',
       'settings.image.baseUrlHint': 'openai: 如 https://api.example.com/v1；dashscope: 百炼兼容模式地址（自动归一化）',
       'settings.image.model': '模型',
@@ -82,6 +86,8 @@ window.__ModuleLoader__.load({
       'settings.intro': 'Configure the image-understanding and image-generation endpoints. Secrets are written to ~/.dsh/.credentials.yaml through the official credential service; the UI never shows a stored key. Changes apply immediately after saving.',
       'settings.group.vision': 'Image Understanding',
       'settings.group.image': 'Image Generation',
+      'settings.vision.enabled': 'Enable image understanding',
+      'settings.vision.enabledHint': 'When off, understand_image is hidden from the model and the rest of this group is locked',
       'settings.vision.baseUrl': 'Base URL',
       'settings.vision.baseUrlHint': 'OpenAI-compatible chat/completions endpoint, e.g. https://api.deepseek.com',
       'settings.vision.model': 'Model',
@@ -96,6 +102,8 @@ window.__ModuleLoader__.load({
       'settings.vision.defaultPromptHint': 'Instruction used when the model gives none',
       'settings.image.provider': 'Provider',
       'settings.image.providerHint': 'openai (OpenAI-compatible) or dashscope (native)',
+      'settings.image.enabled': 'Enable image generation',
+      'settings.image.enabledHint': 'When off, generate_image is hidden from the model and the rest of this group is locked',
       'settings.image.baseUrl': 'Base URL',
       'settings.image.baseUrlHint': 'openai: e.g. https://api.example.com/v1; dashscope: compatible-mode URL (normalized)',
       'settings.image.model': 'Model',
@@ -129,6 +137,7 @@ window.__ModuleLoader__.load({
 
     /** Settings namespace defaults — must mirror lib/config.js DEFAULTS. */
     const DEFAULTS = {
+      'vision.enabled': true,
       'vision.baseUrl': '',
       'vision.apiKey': 'cred:UNDERSTAND_IMAGE_KEY',
       'vision.model': '',
@@ -136,6 +145,7 @@ window.__ModuleLoader__.load({
       'vision.maxImageBytes': 20971520,
       'vision.systemPrompt': '',
       'vision.defaultPrompt': '',
+      'image.enabled': true,
       'image.baseUrl': '',
       'image.apiKey': 'cred:GENERATE_IMAGE_KEY',
       'image.model': '',
@@ -199,6 +209,7 @@ window.__ModuleLoader__.load({
     /** One field spec of the settings form. */
     const FIELDS = [
       // ---- 视觉理解 ----
+      { path: ['vision', 'enabled'], type: 'boolean', group: 'vision', labelKey: 'settings.vision.enabled', hintKey: 'settings.vision.enabledHint' },
       { path: ['vision', 'baseUrl'], type: 'text', group: 'vision', labelKey: 'settings.vision.baseUrl', hintKey: 'settings.vision.baseUrlHint' },
       { path: ['vision', 'model'], type: 'text', group: 'vision', labelKey: 'settings.vision.model', hintKey: 'settings.vision.modelHint' },
       { path: ['vision', 'timeoutMs'], type: 'secMs', group: 'vision', labelKey: 'settings.vision.timeoutMs', hintKey: 'settings.vision.timeoutMsHint' },
@@ -206,6 +217,7 @@ window.__ModuleLoader__.load({
       { path: ['vision', 'systemPrompt'], type: 'text', group: 'vision', labelKey: 'settings.vision.systemPrompt', hintKey: 'settings.vision.systemPromptHint' },
       { path: ['vision', 'defaultPrompt'], type: 'text', group: 'vision', labelKey: 'settings.vision.defaultPrompt', hintKey: 'settings.vision.defaultPromptHint' },
       // ---- 图像生成 ----
+      { path: ['image', 'enabled'], type: 'boolean', group: 'image', labelKey: 'settings.image.enabled', hintKey: 'settings.image.enabledHint' },
       { path: ['image', 'provider'], type: 'select', group: 'image', labelKey: 'settings.image.provider', hintKey: 'settings.image.providerHint', options: ['openai', 'dashscope'] },
       { path: ['image', 'baseUrl'], type: 'text', group: 'image', labelKey: 'settings.image.baseUrl', hintKey: 'settings.image.baseUrlHint' },
       { path: ['image', 'model'], type: 'text', group: 'image', labelKey: 'settings.image.model', hintKey: 'settings.image.modelHint' },
@@ -358,12 +370,19 @@ window.__ModuleLoader__.load({
       const renderGroup = (group) => {
         const fields = FIELDS.filter((f) => f.group === group.id);
         if (fields.length === 0) return null;
+        // The group's capability switch (boolean field) gates the rest: when
+        // off, the other fields and the credential row are locked (read-only
+        // styling + disabled controls), so the user can prepare the endpoint
+        // only while the capability is enabled.
+        const enabledSpec = fields.find((f) => f.type === 'boolean');
+        const groupEnabled = enabledSpec ? fieldValue(enabledSpec) !== false : true;
         const children = fields.map((spec) => jsx(FieldRow, {
           key: pathKey(spec.path),
           spec,
           t: tr,
           value: fieldValue(spec),
           onChange: setField,
+          disabled: spec.type !== 'boolean' && !groupEnabled,
         }));
         const credSpec = CRED_ROW_BY_GROUP[group.id];
         return jsx('div', { key: group.id, style: { marginBottom: 20 }, children: [
@@ -372,7 +391,7 @@ window.__ModuleLoader__.load({
           credSpec ? jsxs('div', { style: { borderTop: '1px solid var(--dsw-alias-border-l2)', paddingTop: 10, marginTop: 12 }, children: [
             jsx('div', { style: { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)', margin: '0 0 8px' }, children: tr('settings.cred.sectionLabel') }),
             jsx('div', { style: { fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)', margin: '0 0 8px' }, children: tr('settings.cred.intro') }),
-            credRow(credSpec.labelKey, credSpec.ref, credSpec.hintKey),
+            credRow(credSpec.labelKey, credSpec.ref, credSpec.hintKey, !groupEnabled),
           ]}) : null,
         ]});
       };
@@ -391,14 +410,14 @@ window.__ModuleLoader__.load({
           : 'var(--dsw-alias-state-warning-primary, #d29922)';
       };
       // One writable password row: label + status badge + input + save button + feedback.
-      const credRow = (labelKey, ref, hintKey) => {
+      const credRow = (labelKey, ref, hintKey, locked = false) => {
         const draftVal = credDrafts[ref] || '';
         const busy = credSaving === ref;
         const done = credSaved[ref] === true;
         const err = credFailed[ref] === true;
         return jsxs('div', {
           key: ref,
-          style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' },
+          style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap', opacity: locked ? 0.5 : 1 },
           children: [
             jsx('span', { style: { fontSize: 12.5, color: 'var(--dsw-alias-label-primary)', minWidth: 130 }, children: tr(labelKey) }),
             jsx('span', { style: { fontSize: 11.5, color: statusColor(ref), fontWeight: 500 }, children: statusText(ref) }),
@@ -406,18 +425,19 @@ window.__ModuleLoader__.load({
               type: 'password',
               value: draftVal,
               placeholder: ref,
+              disabled: locked,
               onChange: (e) => {
                 setCredDrafts((d) => ({ ...d, [ref]: e.target.value }));
                 setCredSaved((s) => ({ ...s, [ref]: false }));
                 setCredFailed((f) => ({ ...f, [ref]: false }));
               },
-              style: { flex: 1, minWidth: 160, maxWidth: 260, padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, fontFamily: 'ui-monospace, Menlo, monospace' },
+              style: { flex: 1, minWidth: 160, maxWidth: 260, padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, fontFamily: 'ui-monospace, Menlo, monospace', cursor: locked ? 'not-allowed' : 'auto' },
             }),
             jsx('button', {
               type: 'button',
               onClick: () => { void saveCredential(ref); },
-              disabled: !draftVal || busy,
-              style: { padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', cursor: draftVal && !busy ? 'pointer' : 'default', fontSize: 12.5, whiteSpace: 'nowrap' },
+              disabled: locked || !draftVal || busy,
+              style: { padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', cursor: !locked && draftVal && !busy ? 'pointer' : 'default', fontSize: 12.5, whiteSpace: 'nowrap' },
               children: busy ? tr('settings.saving') : tr('settings.cred.save'),
             }),
             done ? jsx('span', { style: { fontSize: 11, color: 'var(--dsw-alias-state-success-primary)' }, children: tr('settings.cred.saved') + ' ✓' }) : null,
@@ -472,33 +492,45 @@ window.__ModuleLoader__.load({
     }
 
     /** One labelled field row (label + control + hint). */
-    function FieldRow({ spec, t, value, onChange }) {
+    function FieldRow({ spec, t, value, onChange, disabled }) {
       const label = t(spec.labelKey);
       const hint = spec.hintKey ? t(spec.hintKey) : null;
       let input;
-      if (spec.type === 'select') {
+      if (spec.type === 'boolean') {
+        // Capability switch. Never disabled: it is the control that unlocks
+        // the rest of the group.
+        input = jsx('input', {
+          type: 'checkbox',
+          checked: value === true,
+          onChange: (e) => onChange(pathKey(spec.path), e.target.checked),
+          style: { width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--dsw-alias-state-business-primary)' },
+        });
+      } else if (spec.type === 'select') {
         input = jsx('select', {
           value: value === undefined || value === null ? '' : value,
+          disabled,
           onChange: (e) => onChange(pathKey(spec.path), e.target.value),
-          style: { width: 200, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5 },
+          style: { width: 200, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, cursor: disabled ? 'not-allowed' : 'auto' },
           children: (spec.options || []).map((opt) => jsx('option', { key: opt, value: opt, children: opt })),
         });
       } else if (spec.type === 'number' || spec.type === 'secMs') {
         input = jsx('input', {
           type: 'number',
           value: value === undefined || value === null ? '' : value,
+          disabled,
           onChange: (e) => onChange(pathKey(spec.path), e.target.value),
-          style: { width: 120, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, fontVariantNumeric: 'tabular-nums' },
+          style: { width: 120, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, fontVariantNumeric: 'tabular-nums', cursor: disabled ? 'not-allowed' : 'auto' },
         });
       } else {
         input = jsx('input', {
           type: 'text',
           value: value === undefined || value === null ? '' : value,
+          disabled,
           onChange: (e) => onChange(pathKey(spec.path), e.target.value),
-          style: { width: 200, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5 },
+          style: { width: 200, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', fontSize: 12.5, cursor: disabled ? 'not-allowed' : 'auto' },
         });
       }
-      return jsxs('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }, children: [
+      return jsxs('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap', opacity: disabled ? 0.5 : 1 }, children: [
         jsx('div', { style: { flex: '1 1 220px', minWidth: 0 }, children: [
           jsx('div', { style: { fontSize: 12.5, lineHeight: '18px', color: 'var(--dsw-alias-label-primary)' }, children: label }),
           hint ? jsx('div', { style: { fontSize: 11, lineHeight: '15px', color: 'var(--dsw-alias-label-tertiary)' }, children: hint }) : null,
