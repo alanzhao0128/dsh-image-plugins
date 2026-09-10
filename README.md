@@ -86,6 +86,8 @@ then re-run the `add` command. npm and tarball installs ship built artifacts and
 
 Since 0.2.0 the plugin ships a **settings panel** (web: Settings → 图片插件 / Image Plugins): edit the vision and image endpoint blocks, and manage the two capability secrets through the official credential store. Changes apply immediately (no restart) for endpoint edits; host-code changes still need a `dsh web` restart after an upgrade.
 
+Since 0.3.0 each capability group has an **enable switch** at the top of the panel: turn it off and the tool is unregistered (the model never sees `understand_image` / `generate_image`), the rest of that group is locked (fields and credential row become read-only), and flipping it back on applies immediately — no restart.
+
 The settings panel writes the `dsh-image-plugins` namespace in `~/.dsh/settings.yaml`. Two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
 
 | Reference | Used by |
@@ -100,6 +102,7 @@ You can also configure manually — override the `image-plugins` row (same id) i
   name: dsh-image-plugins
   config:
     vision:
+      enabled: true                  # 0.3.0: capability switch, default true
       baseUrl: 'https://your-vision-endpoint.example.com/v1'
       apiKey: 'env:VISION_API_KEY'   # literal key, env:NAME, or cred:NAME (see notes)
       model: 'your-vision-model'
@@ -108,6 +111,7 @@ You can also configure manually — override the `image-plugins` row (same id) i
       systemPrompt: ''               # optional, sent before the image
       defaultPrompt: ''              # optional, used when the model gives no prompt
     image:
+      enabled: true                  # 0.3.0: capability switch, default true
       provider: 'openai'             # 'openai' (default) or 'dashscope'
       baseUrl: 'https://your-image-endpoint.example.com/v1'
       apiKey: 'env:IMAGE_API_KEY'
@@ -120,6 +124,7 @@ You can also configure manually — override the `image-plugins` row (same id) i
 Notes:
 
 - Each block is independent: configure only `vision`, only `image`, or both. A partially filled block (e.g. `baseUrl` without `apiKey`) fails the load loudly.
+- Since 0.3.0 each block accepts `enabled: true|false` (default `true`). When `false`, the tool is **not registered** — the model never sees it and cannot call it (an in-flight call that was dispatched just as the switch flipped also fails closed) — and the settings panel locks the rest of that group. Flipping the switch back on in the panel re-enables the tool immediately, no restart.
 - `apiKey` accepts three forms:
   - a **literal** secret (`'sk-...'`),
   - `env:VARNAME` — resolved from the process environment at load,
