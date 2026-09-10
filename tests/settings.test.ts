@@ -46,24 +46,50 @@ interface RpcResult {
   }
 }
 
+/**
+ * A stub `ctx.connection` whose `fetch.register` captures the plugin's
+ * `/api/image-plugin-status/snapshot` route and exposes a callable that runs a
+ * full envelope round-trip through the route (envelope validation + handler).
+ */
+function makeConnectionStub(): {
+  stub: { fetch: { register(route: { path: string; fetch: (request: Request) => Promise<Response> }): void } }
+  rpc: () => Promise<RpcResult>
+} {
+  let routeFetch: ((request: Request) => Promise<Response>) | null = null
+  const stub = {
+    fetch: {
+      register(route: { path: string; fetch: (request: Request) => Promise<Response> }): void {
+        if (route.path === '/api/image-plugin-status/snapshot') routeFetch = route.fetch
+      },
+    },
+  }
+  return {
+    stub,
+    rpc: async (): Promise<RpcResult> => {
+      if (routeFetch === null) return { ok: false }
+      const response = await routeFetch(new Request('http://127.0.0.1/api/image-plugin-status/snapshot', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'client-request', rpcId: 'test', method: 'image-plugin-status/snapshot', payload: {} }),
+      }))
+      const body = await response.json() as { result?: RpcResult }
+      return response.status === 200 && body.result !== undefined ? body.result : { ok: false }
+    },
+  }
+}
+
 /** Mount the plugin with a settings provider + stub services; returns the RPC handler. */
 async function mountWithSettings(
   initial: Record<string, unknown>,
   config: Record<string, unknown>,
 ): Promise<{ rpc: () => Promise<RpcResult>; dispose: () => void }> {
   const ctx = new Context()
-  let rpcHandler: ((...args: unknown[]) => Promise<RpcResult>) | null = null
+  const conn = makeConnectionStub()
   ctx.provide('tools', { register(): void {} })
   ctx.provide('fs', {})
   ctx.provide('agents', {})
   ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
-  ctx.provide('connection', {
-    rpc: {
-      handle(channel: string, handler: (...args: unknown[]) => Promise<RpcResult>): void {
-        if (channel === '/image-plugin-status') rpcHandler = handler
-      },
-    },
-  })
+  ctx.provide('connection', conn.stub as never)
   ctx.provide('credentials', {
     async describe(ref: string): Promise<{ configured: boolean; writable: boolean; source: string }> {
       return {
@@ -77,7 +103,7 @@ async function mountWithSettings(
   const fiber = ctx.plugin(plugin as never, config)
   await new Promise<void>(resolve => setTimeout(resolve, 400))
   return {
-    rpc: () => (rpcHandler as (...args: unknown[]) => Promise<RpcResult>)(null, {}, null),
+    rpc: conn.rpc,
     dispose: () => {
       fiber?.dispose()
     },
@@ -107,18 +133,12 @@ test('settings initial values override the patch base config', async () => {
 
 test('settings edits apply to the live config without a restart', async () => {
   const ctx = new Context()
-  let rpcHandler: ((...args: unknown[]) => Promise<RpcResult>) | null = null
+  const conn = makeConnectionStub()
   ctx.provide('tools', { register(): void {} })
   ctx.provide('fs', {})
   ctx.provide('agents', {})
   ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
-  ctx.provide('connection', {
-    rpc: {
-      handle(channel: string, handler: (...args: unknown[]) => Promise<RpcResult>): void {
-        if (channel === '/image-plugin-status') rpcHandler = handler
-      },
-    },
-  })
+  ctx.provide('connection', conn.stub as never)
   ctx.provide('credentials', {
     async describe(ref: string): Promise<{ configured: boolean; writable: boolean; source: string }> {
       return { configured: ref === credentialRef(UNDERSTAND_IMAGE_REF), writable: true, source: 'env' }
@@ -136,7 +156,7 @@ test('settings edits apply to the live config without a restart', async () => {
   const settings = ctx.get('settings')
   await settings.mutate(ns, [{ op: 'set', path: ['vision', 'model'], value: 'model-b' }])
   await new Promise<void>(resolve => setTimeout(resolve, 300))
-  const result = await (rpcHandler as (...args: unknown[]) => Promise<RpcResult>)(null, {}, null)
+  const result = await conn.rpc()
   assert.equal(result.value?.vision?.model, 'model-b')
   fiber?.dispose()
 })

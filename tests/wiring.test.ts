@@ -19,7 +19,7 @@ import type { PluginConfig } from '../src/config.ts'
 interface MountResult {
   registeredTools: string[]
   preStepListeners: number
-  rpcChannels: string[]
+  fetchRoutes: string[]
   dispose(): void
 }
 
@@ -27,7 +27,7 @@ interface MountResult {
 async function mount(config: PluginConfig): Promise<MountResult> {
   const ctx = new Context()
   const registeredTools: string[] = []
-  const rpcChannels: string[] = []
+  const fetchRoutes: string[] = []
   let preStepListeners = 0
   ctx.provide('tools', {
     register(tool: { name: string }): void {
@@ -38,9 +38,9 @@ async function mount(config: PluginConfig): Promise<MountResult> {
   ctx.provide('agents', {})
   ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
   ctx.provide('connection', {
-    rpc: {
-      handle(channel: string): void {
-        rpcChannels.push(channel)
+    fetch: {
+      register(route: { path: string }): void {
+        fetchRoutes.push(route.path)
       },
     },
   })
@@ -59,7 +59,7 @@ async function mount(config: PluginConfig): Promise<MountResult> {
   await new Promise<void>(resolve => {
     const startedAt = Date.now()
     const poll = (): void => {
-      if (registeredTools.length > 0 || preStepListeners > 0 || rpcChannels.length > 0 || Date.now() - startedAt > 500) {
+      if (registeredTools.length > 0 || preStepListeners > 0 || fetchRoutes.length > 0 || Date.now() - startedAt > 500) {
         resolve()
         return
       }
@@ -70,7 +70,7 @@ async function mount(config: PluginConfig): Promise<MountResult> {
   return {
     registeredTools,
     preStepListeners,
-    rpcChannels,
+    fetchRoutes,
     dispose: () => {
       fiber?.dispose()
     },
@@ -106,10 +106,10 @@ test('skips the pre-step listener when autoUnderstand is false', async () => {
   }
 })
 
-test('registers the /image-plugin-status RPC channel', async () => {
+test('registers the /api image-plugin-status Fetch route', async () => {
   const mounted = await mount({})
   try {
-    assert.ok(mounted.rpcChannels.includes('/image-plugin-status'))
+    assert.ok(mounted.fetchRoutes.includes('/api/image-plugin-status/snapshot'))
   } finally {
     mounted.dispose()
   }
@@ -127,8 +127,8 @@ test('accepts cred: apiKey values at load and defers resolution to execution', a
   ctx.provide('agents', {})
   ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
   ctx.provide('connection', {
-    rpc: {
-      handle(): void {},
+    fetch: {
+      register(): void {},
     },
   })
   ctx.provide('credentials', {

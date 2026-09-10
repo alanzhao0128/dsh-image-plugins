@@ -46,6 +46,63 @@ export const SETTINGS_NAMESPACE = 'dsh-image-plugins'
 export const inject = ['tools', 'fs', 'agents', 'connection', 'credentials']
 
 /**
+ * One `/api` shared-channel Fetch route carrying the classic client-request
+ * envelope (`{type:'client-request', rpcId, method, payload}` → `{type:
+ * 'server-response', rpcId, result:{ok,value}}`). dsh ≥ 0.1.5 moved plugin
+ * RPC from `connection.rpc.handle` (a webServer prefix route) to exact
+ * `/api/...` Fetch routes (`connection.fetch.register`); the envelope wire
+ * protocol is unchanged, so clients keep parsing `result.ok / result.value`.
+ *
+ * Error branches mirror the official `rpcFetchHandler` (rpc-host.ts):
+ * non-POST → 404, wrong content-type → 415, unparseable body → 400,
+ * invalid envelope → 400, handler throw → 500.
+ * @param endpoint - endpoint path below `/api`, e.g. `image-plugin-status/snapshot`.
+ * @param handler - request handler with the classic `(endpoint, payload, signal)` signature.
+ * @returns a Fetch route for {@link HostConnectionFetch.register}.
+ */
+export function rpcRoute(
+  endpoint: string,
+  handler: (endpoint: string, payload: unknown, signal: AbortSignal | undefined) => Promise<unknown>,
+): {
+  path: string
+  methods: readonly string[]
+  requestBody: 'buffered'
+  fetch: (request: Request) => Promise<Response>
+} {
+  const path = `/api/${endpoint}`
+  return {
+    path,
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request: Request): Promise<Response> => {
+      if (request.method !== 'POST') return new Response('not found', { status: 404 })
+      const mediaType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+      if (mediaType !== 'application/json') {
+        return new Response('content type must be application/json', { status: 415 })
+      }
+      let message: { type?: unknown; rpcId?: unknown; method?: unknown; payload?: unknown } | null
+      try {
+        message = await request.json() as { type?: unknown; rpcId?: unknown; method?: unknown; payload?: unknown } | null
+      } catch {
+        return new Response('body is not JSON', { status: 400 })
+      }
+      if (message === null || typeof message !== 'object'
+        || message.type !== 'client-request'
+        || typeof message.rpcId !== 'string'
+        || message.method !== endpoint) {
+        return new Response('invalid client-request message', { status: 400 })
+      }
+      try {
+        const result = await handler(endpoint, message.payload, request.signal)
+        return Response.json({ type: 'server-response', rpcId: message.rpcId, result })
+      } catch (error) {
+        return new Response(`handler failure: ${String(error)}`, { status: 500 })
+      }
+    },
+  }
+}
+
+/**
  * Normalize an optional capability block: absent or fully empty disables it;
  * a partially filled block fails loud at load. Exported for unit tests.
  */
@@ -124,61 +181,57 @@ export function apply(ctx: Context, config: PluginConfig): void {
   if (live.autoUnderstand !== false) applyAutoUnderstand(ctx, getVision)
 
   const connection = ctx.get('connection')
-  if (connection !== undefined && typeof connection.rpc?.handle === 'function') {
-    connection.rpc.handle(
-      '/image-plugin-status',
-      async () => {
-        const credentials = ctx.get('credentials')
-        const describe = async (ref: string): Promise<{ configured: boolean; writable: boolean; source: string | null }> => {
-          if (credentials === undefined || typeof credentials.describe !== 'function') {
-            return { configured: false, writable: false, source: null }
-          }
-          try {
-            const view = await credentials.describe(credentialRef(ref))
-            return {
-              configured: view?.configured === true,
-              writable: view?.writable === true,
-              source: typeof view?.source === 'string' ? view.source : null,
-            }
-          } catch {
-            return { configured: false, writable: false, source: null }
-          }
+  if (connection !== undefined && typeof connection?.fetch?.register === 'function') {
+    connection.fetch.register(rpcRoute('image-plugin-status/snapshot', async (_endpoint, _payload, _signal) => {
+      const credentials = ctx.get('credentials')
+      const describe = async (ref: string): Promise<{ configured: boolean; writable: boolean; source: string | null }> => {
+        if (credentials === undefined || typeof credentials.describe !== 'function') {
+          return { configured: false, writable: false, source: null }
         }
-        const [understand, generate] = await Promise.all([
-          describe(UNDERSTAND_IMAGE_REF),
-          describe(GENERATE_IMAGE_REF),
-        ])
-        // A partially filled block throws from resolveVision/resolveImage; the
-        // panel must still report status (and let the user finish configuring),
-        // so read the blocks defensively here.
-        let vision: VisionConfig | undefined
-        let image: ImageConfig | undefined
-        try { vision = resolveVision(live) } catch { vision = undefined }
-        try { image = resolveImage(live) } catch { image = undefined }
-        return {
-          ok: true,
-          value: {
-            credentials: {
-              [UNDERSTAND_IMAGE_REF]: understand,
-              [GENERATE_IMAGE_REF]: generate,
-            },
-            vision: vision === undefined ? undefined : {
-              baseUrl: vision.baseUrl,
-              model: vision.model,
-              apiKeyRef: vision.apiKey.startsWith('cred:') ? vision.apiKey : undefined,
-            },
-            image: image === undefined ? undefined : {
-              provider: image.provider ?? 'openai',
-              baseUrl: image.baseUrl,
-              model: image.model,
-              apiKeyRef: image.apiKey.startsWith('cred:') ? image.apiKey : undefined,
-            },
-            autoUnderstand: live.autoUnderstand ?? false,
-            updatedAt: Date.now(),
+        try {
+          const view = await credentials.describe(credentialRef(ref))
+          return {
+            configured: view?.configured === true,
+            writable: view?.writable === true,
+            source: typeof view?.source === 'string' ? view.source : null,
+          }
+        } catch {
+          return { configured: false, writable: false, source: null }
+        }
+      }
+      const [understand, generate] = await Promise.all([
+        describe(UNDERSTAND_IMAGE_REF),
+        describe(GENERATE_IMAGE_REF),
+      ])
+      // A partially filled block throws from resolveVision/resolveImage; the
+      // panel must still report status (and let the user finish configuring),
+      // so read the blocks defensively here.
+      let vision: VisionConfig | undefined
+      let image: ImageConfig | undefined
+      try { vision = resolveVision(live) } catch { vision = undefined }
+      try { image = resolveImage(live) } catch { image = undefined }
+      return {
+        ok: true,
+        value: {
+          credentials: {
+            [UNDERSTAND_IMAGE_REF]: understand,
+            [GENERATE_IMAGE_REF]: generate,
           },
-        }
-      },
-      { authority: 'loopback' },
-    )
+          vision: vision === undefined ? undefined : {
+            baseUrl: vision.baseUrl,
+            model: vision.model,
+            apiKeyRef: vision.apiKey.startsWith('cred:') ? vision.apiKey : undefined,
+          },
+          image: image === undefined ? undefined : {
+            provider: image.provider ?? 'openai',
+            baseUrl: image.baseUrl,
+            model: image.model,
+            apiKeyRef: image.apiKey.startsWith('cred:') ? image.apiKey : undefined,
+          },
+          autoUnderstand: live.autoUnderstand ?? false,
+          updatedAt: Date.now(),
+        },
+      }
+    }))
   }
 }

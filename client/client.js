@@ -252,7 +252,7 @@ window.__ModuleLoader__.load({
         let alive = true;
         (async () => {
           try {
-            const result = await connection.rpc.call('/image-plugin-status', 'snapshot', {});
+            const result = await connection.rpc.call('/api', 'image-plugin-status/snapshot', {});
             if (alive && result && result.ok && result.value) setCredStatus(result.value);
           } catch {
             if (alive) setCredStatus(null);
