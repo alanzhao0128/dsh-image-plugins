@@ -241,3 +241,68 @@ test('disabling a capability via settings unregisters its tool without a restart
     fiber?.dispose()
   }
 })
+
+test('dsh >= 0.1.7 SettingsForms: disables auto-generated form and applies config-reload', async () => {
+  const ctx = new Context()
+  const conn = makeConnectionStub()
+  const registeredTools: string[] = []
+  ctx.provide('tools', {
+    register(tool: { name: string }): () => void {
+      registeredTools.push(tool.name)
+      return () => {
+        const i = registeredTools.indexOf(tool.name)
+        if (i >= 0) registeredTools.splice(i, 1)
+      }
+    },
+  })
+  ctx.provide('fs', {})
+  ctx.provide('agents', {})
+  ctx.provide('logger', { info(): void {}, warn(): void {}, error(): void {} })
+  ctx.provide('connection', conn.stub as never)
+  ctx.provide('credentials', {
+    async describe(ref: string): Promise<{ configured: boolean; writable: boolean; source: string }> {
+      return { configured: ref === credentialRef(UNDERSTAND_IMAGE_REF), writable: true, source: 'env' }
+    },
+  })
+
+  // 0.1.7 SettingsForms stub
+  const configured: Array<{ auto?: boolean; owner: unknown }> = []
+  ctx.provide('settings', {
+    configure(opts: { auto?: boolean }, owner?: unknown): () => void {
+      configured.push({ auto: opts.auto, owner })
+      return () => {}
+    },
+  })
+
+  const initialConfig = {
+    vision: { enabled: true, baseUrl: 'https://v.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'model-v1' },
+    image: { enabled: true, baseUrl: 'https://i.example.com', apiKey: `cred:${GENERATE_IMAGE_REF}`, model: 'model-i1' },
+  }
+  const fiber = await ctx.plugin(plugin as never, initialConfig)
+  await new Promise<void>(resolve => setTimeout(resolve, 400))
+
+  try {
+    assert.equal(configured.length, 1, 'configure() must be called once')
+    assert.equal(configured[0]?.auto, false, 'must request auto: false to disable auto form')
+
+    const before = await conn.rpc()
+    assert.equal(before.value?.vision?.model, 'model-v1')
+
+    // Simulate profile config reload in 0.1.7:
+    // Update fiber.config and emit app-boot/config-reload
+    ;(fiber as any).config = {
+      vision: { enabled: false, baseUrl: 'https://v.example.com', apiKey: `cred:${UNDERSTAND_IMAGE_REF}`, model: 'model-v2' },
+      image: { enabled: true, baseUrl: 'https://i.example.com', apiKey: `cred:${GENERATE_IMAGE_REF}`, model: 'model-i2' },
+    }
+    ctx.emit('app-boot/config-reload' as any)
+    await new Promise<void>(resolve => setTimeout(resolve, 100))
+
+    const after = await conn.rpc()
+    assert.equal(after.value?.vision?.model, 'model-v2')
+    assert.equal(after.value?.vision?.enabled, false)
+    assert.ok(!registeredTools.includes('understand_image'), 'understand_image must be unregistered when enabled flipped to false')
+    assert.ok(registeredTools.includes('generate_image'), 'generate_image stays registered')
+  } finally {
+    fiber?.dispose()
+  }
+})

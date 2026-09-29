@@ -162,36 +162,47 @@ export async function resolveApiKeyRuntime(ctx: Context, value: string): Promise
 }
 
 /**
+ * Mark a schema node editable without remounting in dsh >= 0.1.7 settings
+ * (SettingsForms / config-editor volatile form). Forward-compatible with older
+ * schemastery runtimes via extra('volatile', true).
+ */
+export function asVolatile<T extends z<any>>(schema: T): T {
+  return typeof (schema as any).volatile === 'function'
+    ? (schema as any).volatile()
+    : (schema as any).extra('volatile', true)
+}
+
+/**
  * Schemastery validation for the settings-managed configuration. Every field
  * is optional so an unconfigured install stays inert; `resolveConfig` applies
  * explicit defaults (the only place defaults live).
  */
 export const Config: z<PluginConfig> = z.object({
-  vision: z.object({
-    enabled: z.boolean(),
-    baseUrl: z.string(),
-    apiKey: z.string(),
-    model: z.string(),
-    timeoutMs: z.number(),
-    maxImageBytes: z.number(),
-    systemPrompt: z.string(),
-    defaultPrompt: z.string(),
-  }),
-  image: z.object({
-    enabled: z.boolean(),
-    baseUrl: z.string(),
-    apiKey: z.string(),
-    model: z.string(),
-    provider: z.union(['openai', 'dashscope']),
-    timeoutMs: z.number(),
-    defaultSize: z.string(),
-    outputDir: z.string(),
-    maxReferenceBytes: z.number(),
-  }),
+  vision: asVolatile(z.object({
+    enabled: asVolatile(z.boolean()),
+    baseUrl: asVolatile(z.string()),
+    apiKey: asVolatile(z.string()),
+    model: asVolatile(z.string()),
+    timeoutMs: asVolatile(z.number()),
+    maxImageBytes: asVolatile(z.number()),
+    systemPrompt: asVolatile(z.string()),
+    defaultPrompt: asVolatile(z.string()),
+  })),
+  image: asVolatile(z.object({
+    enabled: asVolatile(z.boolean()),
+    baseUrl: asVolatile(z.string()),
+    apiKey: asVolatile(z.string()),
+    model: asVolatile(z.string()),
+    provider: asVolatile(z.union(['openai', 'dashscope'])),
+    timeoutMs: asVolatile(z.number()),
+    defaultSize: asVolatile(z.string()),
+    outputDir: asVolatile(z.string()),
+    maxReferenceBytes: asVolatile(z.number()),
+  })),
   // EXPERIMENTAL, undocumented: enables the dormant pre-step auto-understand
   // rewrite (src/pre-step.ts). Keep false; the supported surface is the two
   // model tools.
-  autoUnderstand: z.boolean(),
+  autoUnderstand: asVolatile(z.boolean()),
 })
 
 /** Defaults mirroring the historical hardcoded constants; upgrades are no-ops. */

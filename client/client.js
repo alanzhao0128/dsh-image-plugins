@@ -179,7 +179,46 @@ window.__ModuleLoader__.load({
       return get;
     };
 
-    const inject = ['connection', 'slots', 'locale', 'settingsScope', 'remote', 'remote.credentials'];
+    // Services required across both dsh <= 0.1.5 and dsh >= 0.1.7. Settings
+    // services (configForms in 0.1.7, settingsScope in 0.1.5) are resolved
+    // dynamically inside resolveScope to preserve dual-engine compatibility.
+    const inject = ['connection', 'slots', 'locale', 'remote', 'remote.credentials'];
+
+    function createFallbackScope() {
+      return {
+        getSnapshot: () => ({ status: 'unavailable', value: {}, revision: 0, writable: false }),
+        subscribe: () => () => {},
+        mutate: async () => false,
+      };
+    }
+
+    function resolveScope(ctx, defaultId, fallbackId) {
+      if (!ctx || typeof ctx.get !== 'function') return createFallbackScope();
+
+      // Branch 1: dsh >= 0.1.7 (configForms)
+      const configForms = ctx.get('configForms');
+      if (configForms && typeof configForms.get === 'function') {
+        try {
+          const desc = typeof configForms.describe === 'function' ? configForms.describe() : null;
+          const snap = desc && typeof desc.getSnapshot === 'function' ? desc.getSnapshot() : null;
+          const served = (snap && snap.view && Array.isArray(snap.view.namespaces))
+            ? snap.view.namespaces.map((n) => n.ns)
+            : [];
+          if (fallbackId && served.includes(fallbackId) && !served.includes(defaultId)) {
+            return configForms.get(fallbackId);
+          }
+        } catch (_) {}
+        return configForms.get(defaultId);
+      }
+
+      // Branch 2: dsh <= 0.1.5 (settingsScope)
+      const settingsScope = ctx.get('settingsScope');
+      if (settingsScope && typeof settingsScope.bind === 'function') {
+        return settingsScope.bind({ namespace: fallbackId || defaultId });
+      }
+
+      return createFallbackScope();
+    }
 
     function apply(ctx) {
       ctx.effect(
@@ -189,8 +228,7 @@ window.__ModuleLoader__.load({
 
       const connection = ctx.get('connection');
       const remote = ctx.get('remote');
-      let scope = null;
-      try { scope = ctx.get('settingsScope').bind({ namespace: SETTINGS_NS }); } catch { /* absent */ }
+      const scope = resolveScope(ctx, 'image-plugins', SETTINGS_NS);
       const cfg = makeScopeReader(scope, DEFAULTS);
 
       ctx.slots.inject('settings.section', () => ctx.slots.register(

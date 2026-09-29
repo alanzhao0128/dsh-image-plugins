@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-plugins",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Multimodal plugin for DeepSeek Harness: understand images and generate images through configurable OpenAI-compatible or DashScope endpoints.",
   "keywords": [
     "dsh",
@@ -73,8 +73,8 @@
     "clean": "rm -rf lib"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.1.2-rc.1"
+    "@deepseek-ai/dsh-credentials": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-settings": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1"
   }
 }
