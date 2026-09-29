@@ -62,10 +62,10 @@ Other channels:
 
 ```sh
 # GitHub (pin a version; the first install needs allowBuilds, see below)
-dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.1.0
+dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.1
 
 # Tarball (npm pack output, send the file)
-dsh plugin --profile web add ./dsh-image-plugins-0.1.0.tgz
+dsh plugin --profile web add ./dsh-image-plugins-0.3.1.tgz
 
 # Local checkout
 dsh plugin --profile web add /path/to/dsh-image-plugins
@@ -88,7 +88,9 @@ Since 0.2.0 the plugin ships a **settings panel** (web: Settings → 图片插�
 
 Since 0.3.0 each capability group has an **enable switch** at the top of the panel: turn it off and the tool is unregistered (the model never sees `understand_image` / `generate_image`), the rest of that group is locked (fields and credential row become read-only), and flipping it back on applies immediately — no restart.
 
-The settings panel writes the `dsh-image-plugins` namespace in `~/.dsh/settings.yaml`. Two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
+Since 0.3.1 the plugin is **dual-engine** across the dsh settings rewrite: the same build works on dsh ≤ 0.1.5 (host `settings.installSection`, client `settingsScope` service) and on dsh ≥ 0.1.7 / 0.2.0 (host `SettingsForms` + `settings.configure({ auto: false })`, client `configForms`) with no configuration change. Schema fields are marked `volatile`, which host settings forms require before accepting a live edit, and the plugin no longer declares the removed `settingsScope` client service — declaring it would hang plugin activation on 0.1.7+.
+
+Where the panel persists edits depends on the host: on dsh ≤ 0.1.5 they go to the `dsh-image-plugins` section of `~/.dsh/settings.yaml`; on dsh ≥ 0.1.7 that global file is retired (archived as `settings.yaml.imported`) and edits land in the profile's `cordis.patch.yml` under the `image-plugins` entry. Secrets are stored separately: two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
 
 | Reference | Used by |
 |---|---|
@@ -204,12 +206,13 @@ The agent calls `generate_image`; the file lands in the workspace under `generat
 | Channel | Install command | Notes |
 |---|---|---|
 | npm | `dsh plugin --profile web add dsh-image-plugins` | Recommended; no build allowance |
-| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.1.0` | Needs `allowBuilds` once |
-| Tarball | `dsh plugin add ./dsh-image-plugins-0.1.0.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
+| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.1` | Needs `allowBuilds` once |
+| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.1.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
 
 ## How it stays compatible with dsh's architecture
 
 - Tools are registered through the documented `ctx.tools` seam (`@deepseek-ai/dsh-tools` `defineTool`); tool results are durable log entries, which is exactly the channel the "model-visible ⟺ logged" invariant requires.
+- The settings surface is version-adaptive rather than version-pinned: the host half duck-types `installSection` (≤ 0.1.5) vs `SettingsForms.configure` (≥ 0.1.7), and the browser half resolves `configForms` (≥ 0.1.7) vs `settingsScope` (≤ 0.1.5) at runtime. Both client controllers expose the same `getSnapshot` / `subscribe` / `mutate(ops, revision)` contract, so the panel code is shared.
 - The plugin depends only on published `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery`; no internal modules.
 
 ## Development
@@ -234,7 +237,7 @@ DSH_HOME=/tmp/dsh-image-test-home dsh --profile test --dump-config   # shows the
 - **No inline chat preview yet.** Generated images are returned as paths with a generic tool card (the path is clickable to open). An inline preview needs a client-side `tool.call.toolview` registration (V1.5, not shipped).
 - **No video generation.** Planned as a background-job capability (`ctx.jobs`) once a provider interface is chosen.
 - **No per-request retry/backoff** for endpoint failures; the caller sees the error.
-- **Version pinning.** Built and tested against `@deepseek-ai/*` 0.1.0-rc.6; dsh is in developer preview and breaking changes are expected between releases. Re-run `npm test` after upgrading the host.
+- **Version pinning.** Verified against `@deepseek-ai/*` 0.1.5, 0.1.7-rc.2 and 0.2.0-rc.2 (settings API probed per host); `peerDependencies` declare `>=0.1.2-rc.1` so the 0.1.7+ host compatibility pre-check accepts the plugin. dsh is in developer preview and breaking changes are expected between releases — re-run `npm test` after upgrading the host.
 
 ## License
 
