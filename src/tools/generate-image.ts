@@ -83,7 +83,7 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
     description: 'Generate an image from a text prompt using the configured image-generation model, save it into the workspace, and return the saved file path.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Detailed description of the image to generate; for image editing, describe how the reference image should change.' },
-      size: { type: 'string', description: 'Optional output size (e.g. 1024x1024, 1920x1080). Omit this parameter unless the user explicitly requested a specific resolution or aspect ratio in their prompt, so that the configured default size is used.' },
+      size: { type: 'string', description: 'Optional output size. OMIT this parameter completely unless the user explicitly requested a specific resolution or aspect ratio in their prompt, so that the configured default size applies.' },
       output_path: { type: 'string', description: 'Where to save the image, relative to the workspace or absolute. Defaults to generated/<timestamp>.png.' },
       reference_image: { type: 'string', description: 'Path to a reference image (PNG/JPEG/WebP/GIF) for image editing (I2I); only supported with the dashscope provider.' },
     },
@@ -95,10 +95,11 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
           path: { type: 'string', required: true },
           bytes: { type: 'integer', required: true },
           format: { type: 'string', required: true },
+          size: { type: 'string' },
         },
       },
       render: (_args, value) => [
-        { type: 'text', text: `Saved generated image to ${value.path} (${value.bytes} bytes, ${value.format}).` },
+        { type: 'text', text: `Saved generated image${value.size ? ` (${value.size})` : ''} to ${value.path} (${value.bytes} bytes, ${value.format}).` },
       ],
     },
     async execute(args, exec) {
@@ -122,9 +123,26 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       }
       const apiKey = await resolveApiKeyRuntime(ctx, image.apiKey)
       const requestedSize = args.size?.trim()
-      const effectiveSize = (requestedSize !== undefined && requestedSize !== '' && requestedSize !== 'default' && requestedSize !== 'auto')
+      let effectiveSize = (requestedSize !== undefined && requestedSize !== '' && requestedSize !== 'default' && requestedSize !== 'auto')
         ? requestedSize
         : image.defaultSize
+
+      // If the model passed 1024x1024 (the universal LLM boilerplate or multi-turn history carryover),
+      // but the user configured a custom defaultSize (like 1920x1080), check whether the prompt
+      // genuinely asked for 1024x1024 or 1:1/square. If not, this 1024x1024 was defaulted by the
+      // model, so we must honor the user's configured defaultSize!
+      if (
+        image.defaultSize &&
+        image.defaultSize !== '1024x1024' &&
+        requestedSize === '1024x1024'
+      ) {
+        const p = args.prompt.toLowerCase()
+        const explicitlyAsked1024 = p.includes('1024') || p.includes('1:1') || p.includes('square') || p.includes('正方形')
+        if (!explicitlyAsked1024) {
+          effectiveSize = image.defaultSize
+        }
+      }
+
       const { data, format } = await callImageGen(
         {
           baseUrl: image.baseUrl,
@@ -146,7 +164,7 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       const processPath = fs.processPath(target)
       await mkdir(dirname(processPath), { recursive: true })
       await writeFile(processPath, data)
-      return { path: target.displayPath, bytes: data.length, format }
+      return { path: target.displayPath, bytes: data.length, format, size: effectiveSize }
     },
     presentCall(args): GenericCallView {
       return { card: 'generic', title: `Generate image: ${truncate(args.prompt, 60)}` }

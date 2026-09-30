@@ -357,5 +357,13 @@ test('generate_image tool falls back to image.defaultSize when args.size is omit
     // 3. Explicit size
     await registeredTool.execute({ prompt: 'test', size: '800x600' }, { signal: new AbortController().signal })
     assert.equal(capturedSizes[2], '800x600')
+
+    // 4. Model defaults to 1024x1024 boilerplate, but prompt did NOT ask for 1024/square
+    await registeredTool.execute({ prompt: 'a wide landscape', size: '1024x1024' }, { signal: new AbortController().signal })
+    assert.equal(capturedSizes[3], '1920x1080', 'should override 1024x1024 boilerplate with user defaultSize 1920x1080')
+
+    // 5. User genuinely requested a 1024x1024 / square image
+    await registeredTool.execute({ prompt: 'a 1024x1024 square avatar', size: '1024x1024' }, { signal: new AbortController().signal })
+    assert.equal(capturedSizes[4], '1024x1024', 'should honor 1024x1024 when explicitly in prompt')
   })
 })
