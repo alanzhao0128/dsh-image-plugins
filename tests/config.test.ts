@@ -14,6 +14,7 @@ import {
   resolveApiKeyFromCredentials,
   resolveApiKeyRuntime,
   resolveConfig,
+  unwrapConfig,
 } from '../src/config.ts'
 import type { PluginConfig } from '../src/config.ts'
 
@@ -191,4 +192,40 @@ test('resolveApiKeyRuntime combines env: and cred: resolution', async () => {
   }
   // cred: resolves through the host seam
   assert.equal(await resolveApiKeyRuntime(ctx, 'cred:DEEPSEEK_API_KEY'), 'cred-secret')
+})
+
+test('unwrapConfig unwraps nested { get(): T } volatile containers', () => {
+  const wrapped = {
+    vision: {
+      baseUrl: { get: () => 'https://v.example.com' },
+      model: { get: () => 'model-v' },
+      enabled: { get: () => true },
+    },
+    list: [{ get: () => 1 }, { get: () => 2 }],
+  }
+  const unwrapped = unwrapConfig(wrapped) as any
+  assert.equal(unwrapped.vision.baseUrl, 'https://v.example.com')
+  assert.equal(unwrapped.vision.model, 'model-v')
+  assert.equal(unwrapped.vision.enabled, true)
+  assert.deepEqual(unwrapped.list, [1, 2])
+})
+
+test('resolveConfig treats blocks with all undefined fields as absent', () => {
+  const volatileEmpty = {
+    vision: {
+      enabled: { get: () => undefined },
+      baseUrl: { get: () => undefined },
+      apiKey: { get: () => undefined },
+      model: { get: () => undefined },
+    },
+    image: {
+      enabled: { get: () => undefined },
+      baseUrl: { get: () => undefined },
+      apiKey: { get: () => undefined },
+      model: { get: () => undefined },
+    },
+  }
+  const resolved = resolveConfig(volatileEmpty as any)
+  assert.equal(resolved.vision, undefined)
+  assert.equal(resolved.image, undefined)
 })

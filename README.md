@@ -62,10 +62,10 @@ Other channels:
 
 ```sh
 # GitHub (pin a version; the first install needs allowBuilds, see below)
-dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.1
+dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.2
 
 # Tarball (npm pack output, send the file)
-dsh plugin --profile web add ./dsh-image-plugins-0.3.1.tgz
+dsh plugin --profile web add ./dsh-image-plugins-0.3.2.tgz
 
 # Local checkout
 dsh plugin --profile web add /path/to/dsh-image-plugins
@@ -206,8 +206,8 @@ The agent calls `generate_image`; the file lands in the workspace under `generat
 | Channel | Install command | Notes |
 |---|---|---|
 | npm | `dsh plugin --profile web add dsh-image-plugins` | Recommended; no build allowance |
-| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.1` | Needs `allowBuilds` once |
-| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.1.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
+| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.2` | Needs `allowBuilds` once |
+| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.2.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
 
 ## How it stays compatible with dsh's architecture
 

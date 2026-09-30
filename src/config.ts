@@ -176,9 +176,14 @@ export function asVolatile<T extends z<any>>(schema: T): T {
  * Schemastery validation for the settings-managed configuration. Every field
  * is optional so an unconfigured install stays inert; `resolveConfig` applies
  * explicit defaults (the only place defaults live).
+ *
+ * Notice: leaf fields are marked `asVolatile` so SettingsForms in dsh >= 0.1.7
+ * admits live online mutations. The enclosing `z.object` nodes must NOT be marked
+ * volatile, or Schemastery / Cordis rejects the schema with:
+ * "volatile fields require a fixed object path without an enclosing volatile field".
  */
 export const Config: z<PluginConfig> = z.object({
-  vision: asVolatile(z.object({
+  vision: z.object({
     enabled: asVolatile(z.boolean()),
     baseUrl: asVolatile(z.string()),
     apiKey: asVolatile(z.string()),
@@ -187,8 +192,8 @@ export const Config: z<PluginConfig> = z.object({
     maxImageBytes: asVolatile(z.number()),
     systemPrompt: asVolatile(z.string()),
     defaultPrompt: asVolatile(z.string()),
-  })),
-  image: asVolatile(z.object({
+  }),
+  image: z.object({
     enabled: asVolatile(z.boolean()),
     baseUrl: asVolatile(z.string()),
     apiKey: asVolatile(z.string()),
@@ -198,7 +203,7 @@ export const Config: z<PluginConfig> = z.object({
     defaultSize: asVolatile(z.string()),
     outputDir: asVolatile(z.string()),
     maxReferenceBytes: asVolatile(z.number()),
-  })),
+  }),
   // EXPERIMENTAL, undocumented: enables the dormant pre-step auto-understand
   // rewrite (src/pre-step.ts). Keep false; the supported surface is the two
   // model tools.
@@ -224,35 +229,66 @@ export const DEFAULTS: PluginConfig = {
 }
 
 /**
+ * Recursively unwrap Schemastery / Cosmokit `.volatile()` reference objects
+ * ({ get(): T }). A volatile field evaluates to a stable reference holder
+ * whose .get() yields the current value (or undefined when unconfigured).
+ * This unwraps them so resolveConfig and all internal code deal strictly with
+ * plain values.
+ */
+export function unwrapConfig<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj
+  if (typeof obj === 'object' && typeof (obj as any).get === 'function') {
+    return unwrapConfig((obj as any).get())
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => unwrapConfig(item)) as unknown as T
+  }
+  if (typeof obj === 'object' && Object.prototype.toString.call(obj) === '[object Object]') {
+    const res: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(obj)) {
+      res[key] = unwrapConfig(value)
+    }
+    return res as T
+  }
+  return obj
+}
+
+function isBlockEmpty(block: unknown): boolean {
+  if (block === undefined || block === null || typeof block !== 'object') return true
+  return Object.values(block).every(v => v === undefined)
+}
+
+/**
  * Normalize and default a raw configuration. Missing capability blocks are
  * left absent (a capability registers only when fully configured); present
  * blocks receive defaults for every omitted field.
  */
-export function resolveConfig(config: PluginConfig = {}): PluginConfig {
-  const vision = config.vision === undefined
+export function resolveConfig(rawConfig: PluginConfig = {}): PluginConfig {
+  const config = unwrapConfig(rawConfig) ?? {}
+  const vision = isBlockEmpty(config.vision)
     ? undefined
     : {
-        enabled: config.vision.enabled ?? true,
-        baseUrl: config.vision.baseUrl ?? '',
-        apiKey: config.vision.apiKey ?? `cred:${UNDERSTAND_IMAGE_REF}`,
-        model: config.vision.model ?? '',
-        ...(config.vision.timeoutMs === undefined ? {} : { timeoutMs: config.vision.timeoutMs }),
-        ...(config.vision.maxImageBytes === undefined ? {} : { maxImageBytes: config.vision.maxImageBytes }),
-        ...(config.vision.systemPrompt === undefined ? {} : { systemPrompt: config.vision.systemPrompt }),
-        ...(config.vision.defaultPrompt === undefined ? {} : { defaultPrompt: config.vision.defaultPrompt }),
+        enabled: config.vision!.enabled ?? true,
+        baseUrl: config.vision!.baseUrl ?? '',
+        apiKey: config.vision!.apiKey ?? `cred:${UNDERSTAND_IMAGE_REF}`,
+        model: config.vision!.model ?? '',
+        ...(config.vision!.timeoutMs === undefined ? {} : { timeoutMs: config.vision!.timeoutMs }),
+        ...(config.vision!.maxImageBytes === undefined ? {} : { maxImageBytes: config.vision!.maxImageBytes }),
+        ...(config.vision!.systemPrompt === undefined ? {} : { systemPrompt: config.vision!.systemPrompt }),
+        ...(config.vision!.defaultPrompt === undefined ? {} : { defaultPrompt: config.vision!.defaultPrompt }),
       }
-  const image = config.image === undefined
+  const image = isBlockEmpty(config.image)
     ? undefined
     : {
-        enabled: config.image.enabled ?? true,
-        baseUrl: config.image.baseUrl ?? '',
-        apiKey: config.image.apiKey ?? `cred:${GENERATE_IMAGE_REF}`,
-        model: config.image.model ?? '',
-        provider: config.image.provider ?? DEFAULT_IMAGE_PROVIDER,
-        ...(config.image.timeoutMs === undefined ? {} : { timeoutMs: config.image.timeoutMs }),
-        ...(config.image.defaultSize === undefined ? {} : { defaultSize: config.image.defaultSize }),
-        ...(config.image.outputDir === undefined ? {} : { outputDir: config.image.outputDir }),
-        ...(config.image.maxReferenceBytes === undefined ? {} : { maxReferenceBytes: config.image.maxReferenceBytes }),
+        enabled: config.image!.enabled ?? true,
+        baseUrl: config.image!.baseUrl ?? '',
+        apiKey: config.image!.apiKey ?? `cred:${GENERATE_IMAGE_REF}`,
+        model: config.image!.model ?? '',
+        provider: config.image!.provider ?? DEFAULT_IMAGE_PROVIDER,
+        ...(config.image!.timeoutMs === undefined ? {} : { timeoutMs: config.image!.timeoutMs }),
+        ...(config.image!.defaultSize === undefined ? {} : { defaultSize: config.image!.defaultSize }),
+        ...(config.image!.outputDir === undefined ? {} : { outputDir: config.image!.outputDir }),
+        ...(config.image!.maxReferenceBytes === undefined ? {} : { maxReferenceBytes: config.image!.maxReferenceBytes }),
       }
   return {
     ...vision === undefined ? {} : { vision },

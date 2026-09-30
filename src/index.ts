@@ -29,7 +29,7 @@ import {
   type PluginConfig,
   type VisionConfig,
 } from './config.js'
-import { resolveApiKey, resolveConfig } from './config.js'
+import { resolveApiKey, resolveConfig, unwrapConfig } from './config.js'
 import { applyAutoUnderstand } from './pre-step.js'
 import { applyGenerateImageTool } from './tools/generate-image.js'
 import { applyUnderstandImageTool } from './tools/understand-image.js'
@@ -106,7 +106,8 @@ export function rpcRoute(
  * Normalize an optional capability block: absent or fully empty disables it;
  * a partially filled block fails loud at load. Exported for unit tests.
  */
-export function resolveVision(config: PluginConfig): VisionConfig | undefined {
+export function resolveVision(rawConfig: PluginConfig): VisionConfig | undefined {
+  const config = unwrapConfig(rawConfig)
   const raw = config.vision
   if (raw === undefined) return undefined
   const baseUrl = raw.baseUrl ?? ''
@@ -120,7 +121,8 @@ export function resolveVision(config: PluginConfig): VisionConfig | undefined {
 }
 
 /** Normalize the image block; see {@link resolveVision}. Exported for unit tests. */
-export function resolveImage(config: PluginConfig): ImageConfig | undefined {
+export function resolveImage(rawConfig: PluginConfig): ImageConfig | undefined {
+  const config = unwrapConfig(rawConfig)
   const raw = config.image
   if (raw === undefined) return undefined
   const baseUrl = raw.baseUrl ?? ''
