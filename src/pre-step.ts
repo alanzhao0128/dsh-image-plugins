@@ -126,13 +126,13 @@ export function applyAutoUnderstand(ctx: Context, getVision: () => VisionConfig 
     cache.set(cacheKey, description)
     return description
   }
-  ctx.on('agent/pre-step', async (
-    { signal },
-    next,
+  ;(ctx as any).on('agent/pre-step', async (
+    { signal }: any,
+    next: any,
   ): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted) return decision
-    if (!decision.messages.some(message => message.content.some(block => block.type === 'image'))) {
+    if (!decision.messages.some((message: any) => message.content.some((block: any) => block.type === 'image'))) {
       return decision
     }
     const messages = await rewriteImageMessages(decision.messages, describe, signal)

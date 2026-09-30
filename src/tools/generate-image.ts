@@ -78,12 +78,12 @@ export function defaultOutputPath(outputDir: string, format: string, prompt: str
  * registry exposes none, e.g. in tests).
  */
 export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig | undefined): () => void {
-  const disposer = ctx.tools.register(defineTool({
+  const disposer = (ctx as any).tools.register(defineTool({
     name: 'generate_image',
     description: 'Generate an image from a text prompt using the configured image-generation model, save it into the workspace, and return the saved file path.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Detailed description of the image to generate; for image editing, describe how the reference image should change.' },
-      size: { type: 'string', description: 'Output size such as 1024x1024. Defaults to the configured size.' },
+      size: { type: 'string', description: 'Optional output size (e.g. 1024x1024, 1920x1080). Omit this parameter unless the user explicitly requested a specific resolution or aspect ratio in their prompt, so that the configured default size is used.' },
       output_path: { type: 'string', description: 'Where to save the image, relative to the workspace or absolute. Defaults to generated/<timestamp>.png.' },
       reference_image: { type: 'string', description: 'Path to a reference image (PNG/JPEG/WebP/GIF) for image editing (I2I); only supported with the dashscope provider.' },
     },
@@ -121,6 +121,10 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
         throw new Error('reference_image requires the dashscope provider; set image.provider to "dashscope" to use image editing')
       }
       const apiKey = await resolveApiKeyRuntime(ctx, image.apiKey)
+      const requestedSize = args.size?.trim()
+      const effectiveSize = (requestedSize !== undefined && requestedSize !== '' && requestedSize !== 'default' && requestedSize !== 'auto')
+        ? requestedSize
+        : image.defaultSize
       const { data, format } = await callImageGen(
         {
           baseUrl: image.baseUrl,
@@ -128,7 +132,7 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
           model: image.model,
           timeoutMs: image.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS,
           signal: exec.signal,
-          size: args.size ?? image.defaultSize,
+          size: effectiveSize,
           provider: image.provider,
           referenceImages,
         },

@@ -175,7 +175,7 @@ export function installSettingsCompat<T>(
     hooks.setSource(() => {
       const entryConfig = (ctx as any).fiber?.entry?.options?.config as T | undefined
       const fiberConfig = (ctx as any).fiber?.config as T | undefined
-      return entryConfig ?? fiberConfig ?? entry
+      return unwrapConfig((entryConfig ?? fiberConfig ?? entry) as any) as T
     })
     // 2. Disable auto-generated settings form if configure() is available
     if (typeof settings.configure === 'function') {
@@ -209,8 +209,9 @@ export function installSettingsCompat<T>(
  * @param config - validated plugin configuration.
  */
 export function apply(ctx: Context, config: PluginConfig): void {
-  let source = (): PluginConfig => config
-  live = resolveConfig(config)
+  const unwrapped = unwrapConfig(config)
+  let source = (): PluginConfig => unwrapped
+  live = resolveConfig(unwrapped)
   // Settings-managed config (dsh ≥ 0.1.2): register the namespace through the
   // settings service when one is mounted; without one the plugin keeps using
   // the composition entry (config) directly. The scope's resolved value layers
@@ -252,7 +253,7 @@ export function apply(ctx: Context, config: PluginConfig): void {
       syncEnabled()
     },
   }
-  installSettingsCompat(ctx, SETTINGS_NAMESPACE, Config, config, hooks)
+  installSettingsCompat(ctx, SETTINGS_NAMESPACE, Config, unwrapped, hooks)
   syncEnabled()
   if (live.autoUnderstand !== false && live.vision?.enabled !== false) {
     applyAutoUnderstand(ctx, getVision)

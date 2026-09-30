@@ -307,3 +307,55 @@ test('rejects reference images on the openai flavor', async () => {
     /reference images require provider "dashscope"/,
   )
 })
+
+test('generate_image tool falls back to image.defaultSize when args.size is omitted or default', async () => {
+  const capturedSizes: string[] = []
+  await withServer(async (req, res) => {
+    if (req.url === '/images/generations') {
+      const body = await readJsonBody(req) as { size: string }
+      capturedSizes.push(body.size)
+      json(res, 200, { data: [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }] })
+      return
+    }
+    res.writeHead(404).end()
+  }, async baseUrl => {
+    let registeredTool: any = null
+    const ctx = {
+      tools: {
+        register: (tool: any) => {
+          registeredTool = tool
+          return () => {}
+        },
+      },
+      get: (name: string) => {
+        if (name === 'fs') {
+          return {
+            resolve: async (p: string) => ({ displayPath: p, nativePath: `/tmp/dsh-test-img/${p}` }),
+            processPath: (t: any) => t.nativePath,
+          }
+        }
+        return undefined
+      },
+    }
+    const { applyGenerateImageTool } = await import('../src/tools/generate-image.ts')
+    applyGenerateImageTool(ctx as any, () => ({
+      baseUrl,
+      apiKey: 'key',
+      model: 'model',
+      defaultSize: '1920x1080',
+    }))
+
+    assert.ok(registeredTool)
+    // 1. Omitted size
+    await registeredTool.execute({ prompt: 'test' }, { signal: new AbortController().signal })
+    assert.equal(capturedSizes[0], '1920x1080')
+
+    // 2. Size = 'default'
+    await registeredTool.execute({ prompt: 'test', size: 'default' }, { signal: new AbortController().signal })
+    assert.equal(capturedSizes[1], '1920x1080')
+
+    // 3. Explicit size
+    await registeredTool.execute({ prompt: 'test', size: '800x600' }, { signal: new AbortController().signal })
+    assert.equal(capturedSizes[2], '800x600')
+  })
+})

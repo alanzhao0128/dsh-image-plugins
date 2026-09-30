@@ -36,7 +36,7 @@ const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
  * registry exposes none, e.g. in tests).
  */
 export function applyUnderstandImageTool(ctx: Context, getVision: () => VisionConfig | undefined): () => void {
-  const disposer = ctx.tools.register(defineTool({
+  const disposer = (ctx as any).tools.register(defineTool({
     name: 'understand_image',
     description: 'Understand an image file: send it to the configured vision model and return its text description. Use it when the user references an image file (screenshot, chart, photo) and asks what it shows or asks a question about its content.',
     parameters: {

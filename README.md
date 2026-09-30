@@ -62,10 +62,10 @@ Other channels:
 
 ```sh
 # GitHub (pin a version; the first install needs allowBuilds, see below)
-dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.2
+dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.3
 
 # Tarball (npm pack output, send the file)
-dsh plugin --profile web add ./dsh-image-plugins-0.3.2.tgz
+dsh plugin --profile web add ./dsh-image-plugins-0.3.3.tgz
 
 # Local checkout
 dsh plugin --profile web add /path/to/dsh-image-plugins
@@ -89,6 +89,8 @@ Since 0.2.0 the plugin ships a **settings panel** (web: Settings → 图片插�
 Since 0.3.0 each capability group has an **enable switch** at the top of the panel: turn it off and the tool is unregistered (the model never sees `understand_image` / `generate_image`), the rest of that group is locked (fields and credential row become read-only), and flipping it back on applies immediately — no restart.
 
 Since 0.3.1 the plugin is **dual-engine** across the dsh settings rewrite: the same build works on dsh ≤ 0.1.5 (host `settings.installSection`, client `settingsScope` service) and on dsh ≥ 0.1.7 / 0.2.0 (host `SettingsForms` + `settings.configure({ auto: false })`, client `configForms`) with no configuration change. Schema fields are marked `volatile`, which host settings forms require before accepting a live edit, and the plugin no longer declares the removed `settingsScope` client service — declaring it would hang plugin activation on 0.1.7+.
+
+Since 0.3.3 the `generate_image` tool schema description and fallback behavior instruct models to omit the `size` parameter unless the user explicitly requested a specific resolution or aspect ratio, ensuring the user-configured `defaultSize` (e.g. 1920x1080) takes effect as expected.
 
 Where the panel persists edits depends on the host: on dsh ≤ 0.1.5 they go to the `dsh-image-plugins` section of `~/.dsh/settings.yaml`; on dsh ≥ 0.1.7 that global file is retired (archived as `settings.yaml.imported`) and edits land in the profile's `cordis.patch.yml` under the `image-plugins` entry. Secrets are stored separately: two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
 
@@ -206,8 +208,8 @@ The agent calls `generate_image`; the file lands in the workspace under `generat
 | Channel | Install command | Notes |
 |---|---|---|
 | npm | `dsh plugin --profile web add dsh-image-plugins` | Recommended; no build allowance |
-| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.2` | Needs `allowBuilds` once |
-| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.2.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
+| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.3` | Needs `allowBuilds` once |
+| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.3.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
 
 ## How it stays compatible with dsh's architecture
 
