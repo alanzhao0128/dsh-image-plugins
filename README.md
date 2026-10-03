@@ -48,7 +48,7 @@ Why it is disabled: attaching an image to a chat message requires the routed mod
 
    - 看图：*"Look at `images/screenshot.png` and tell me what it shows."*
    - 生图：*"Generate an image of a red apple on a wooden table."*（保存到 `generated/`）
-   - 图生图（需 `dashscope` provider）：*"Change the color of `images/logo.png` to blue."*
+   - 图生图：*"Change the color of `images/logo.png` to blue."*
 
 ## Install
 
@@ -62,10 +62,10 @@ Other channels:
 
 ```sh
 # GitHub (pin a version; the first install needs allowBuilds, see below)
-dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.4
+dsh plugin --profile web add github:alanzhao0128/dsh-image-plugins#v0.3.5
 
 # Tarball (npm pack output, send the file)
-dsh plugin --profile web add ./dsh-image-plugins-0.3.4.tgz
+dsh plugin --profile web add ./dsh-image-plugins-0.3.5.tgz
 
 # Local checkout
 dsh plugin --profile web add /path/to/dsh-image-plugins
@@ -91,6 +91,8 @@ Since 0.3.0 each capability group has an **enable switch** at the top of the pan
 Since 0.3.1 the plugin is **dual-engine** across the dsh settings rewrite: the same build works on dsh ≤ 0.1.5 (host `settings.installSection`, client `settingsScope` service) and on dsh ≥ 0.1.7 / 0.2.0 (host `SettingsForms` + `settings.configure({ auto: false })`, client `configForms`) with no configuration change. Schema fields are marked `volatile`, which host settings forms require before accepting a live edit, and the plugin no longer declares the removed `settingsScope` client service — declaring it would hang plugin activation on 0.1.7+.
 
 Since 0.3.4 the `generate_image` tool schema description completely omits `1024x1024` to prevent model boilerplate bias, and the runtime execution automatically intercepts model hallucinated `1024x1024` parameters when a custom `defaultSize` (e.g. `1920x1080`) is configured, unless the prompt explicitly requested a 1024x1024 or 1:1/square image. Effective size is also clearly echoed in the output result.
+
+Since 0.3.5 `reference_image` (image-to-image / editing) is no longer hardcoded to `provider: 'dashscope'`. Both `openai` (such as Qianwen Cloud's OpenAI-compatible endpoint `https://maas.qianwenaiapi.com/compatible-mode/v1`) and `dashscope` native endpoints directly support reference images.
 
 Where the panel persists edits depends on the host: on dsh ≤ 0.1.5 they go to the `dsh-image-plugins` section of `~/.dsh/settings.yaml`; on dsh ≥ 0.1.7 that global file is retired (archived as `settings.yaml.imported`) and edits land in the profile's `cordis.patch.yml` under the `image-plugins` entry. Secrets are stored separately: two fixed credential references back the capabilities — the panel writes secret **values** into `~/.dsh/.credentials.yaml` through the official credential seam and never displays a stored key:
 
@@ -138,27 +140,30 @@ Notes:
 - The profile patch targets the row by id and replaces its whole config — restate every key you need.
 - Endpoints must be OpenAI-compatible: vision = `POST {baseUrl}/chat/completions` accepting `image_url` data URLs; image generation = `POST {baseUrl}/images/generations` returning `data[0].b64_json` or `data[0].url`. Anything compatible — OpenAI, 硅基流动, 智谱, 通义兼容模式, Ollama, etc. — works as-is.
 
-### DashScope (阿里云百炼)
+### DashScope & 千问AI平台 (Qwen-Image)
 
-DashScope's compatible-mode path does **not** serve `images/generations` (it 404s), so image generation speaks the native Model Studio API through `provider: 'dashscope'`. Vision (`understand_image`) works through the compatible-mode `chat/completions` path with any VL model. Both share the same API key:
+千问平台同时提供 **OpenAI 兼容接口**（`https://maas.qianwenaiapi.com/compatible-mode/v1`）与 **DashScope 原生接口**（`https://maas.qianwenaiapi.com` 或 `https://dashscope.aliyuncs.com`）：
+
+- **OpenAI 兼容（推荐）**：`provider: 'openai'`。文生图直接请求 `POST {baseUrl}/images/generations`；图生图自动携带 `image`（base64 data URL）参数，千问原生支持此协议。
+- **DashScope 原生**：`provider: 'dashscope'`。直接调用 `POST /api/v1/services/aigc/multimodal-generation/generation` 原生协议。
+
+示例配置（OpenAI 兼容模式）：
 
 ```yaml
 - id: image-plugins
   name: dsh-image-plugins
   config:
     vision:
-      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-      apiKey: 'sk-...'                # 百炼 API Key
-      model: 'qwen3.7-flash'          # any VL model (verified with qwen3.7-flash)
+      baseUrl: 'https://maas.qianwenaiapi.com/compatible-mode/v1'
+      apiKey: 'sk-...'
+      model: 'qwen3.7-flash'
     image:
-      provider: 'dashscope'
-      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1'  # a /v1 or /compatible-mode/v1 suffix is normalized away
-      apiKey: 'sk-...'                # 百炼 API Key
+      provider: 'openai'
+      baseUrl: 'https://maas.qianwenaiapi.com/compatible-mode/v1'
+      apiKey: 'sk-...'
       model: 'qwen-image-3.0-pro'
-      defaultSize: '1024x1024'        # converted to the native 1024*1024 form
+      defaultSize: '1920x1080'
 ```
-
-The image adapter calls `POST /api/v1/services/aigc/multimodal-generation/generation` (sync), maps `output.choices[0].message.content[0].image`, and downloads the PNG (URLs expire after 24 h). Works with the `qwen-image` family, including `qwen-image-3.0-pro`.
 
 ### DeepSeek official (image understanding)
 
@@ -181,11 +186,11 @@ Two things to know before switching:
 
 ### Image editing (I2I) with a reference image
 
-With the `dashscope` provider, `generate_image` accepts an optional `reference_image` path. The reference (PNG/JPEG/WebP/GIF, ≤ 10 MiB, cap configurable via `image.maxReferenceBytes`) is sent to the model as base64 alongside the prompt:
+`generate_image` accepts an optional `reference_image` path. The reference (PNG/JPEG/WebP/GIF, ≤ 10 MiB, cap configurable via `image.maxReferenceBytes`) is sent to the model as base64 alongside the prompt:
 
 > Change the color of `images/logo.png` to blue, keep everything else identical.
 
-The model edits the reference image instead of generating from scratch. The `openai` flavor has no image input and rejects the parameter with a clear error.
+The model edits the reference image instead of generating from scratch. Both `openai` (supported by 千问/Qwen) and `dashscope` providers support reference images.
 
 ## Use
 
@@ -208,8 +213,8 @@ The agent calls `generate_image`; the file lands in the workspace under `generat
 | Channel | Install command | Notes |
 |---|---|---|
 | npm | `dsh plugin --profile web add dsh-image-plugins` | Recommended; no build allowance |
-| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.4` | Needs `allowBuilds` once |
-| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.4.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
+| GitHub | `dsh plugin add github:alanzhao0128/dsh-image-plugins#v0.3.5` | Needs `allowBuilds` once |
+| Tarball | `dsh plugin add ./dsh-image-plugins-0.3.5.tgz` | From `npm pack`; safe to delete after install (a later `pnpm install` in the profile may then need the file back) |
 
 ## How it stays compatible with dsh's architecture
 

@@ -84,13 +84,16 @@ async function download(
 
 /**
  * Normalize a DashScope base URL to the native API root: strips a trailing
- * `/compatible-mode/v1` or `/v1`, so both `https://dashscope.aliyuncs.com` and
- * the compatible-mode form the console shows work.
+ * `/api/v1/services/...`, `/compatible-mode/v1`, or `/v1`, so
+ * `https://dashscope.aliyuncs.com`, `https://maas.qianwenaiapi.com`,
+ * the compatible-mode form, and full endpoint paths work.
  */
 export function dashscopeRoot(baseUrl: string): string {
   return normalizeBaseUrl(baseUrl)
-    .replace(/\/compatible-mode\/v1$/, '')
-    .replace(/\/v1$/, '')
+    .replace(/\/api\/v1\/services\/aigc\/multimodal-generation\/generation\/?$/, '')
+    .replace(/\/api\/v1\/?$/, '')
+    .replace(/\/compatible-mode\/v1\/?$/, '')
+    .replace(/\/v1\/?$/, '')
 }
 
 /** Convert an OpenAI-style size (`1024x1024`) to the DashScope `1024*1024` form. */
@@ -172,12 +175,15 @@ export async function callImageGen(
   if (options.model === '') throw new Error('image-gen: model is not configured')
   if (prompt.trim() === '') throw new Error('image-gen: prompt must be a non-empty string')
   if (options.provider === 'dashscope') return callDashscopeImageGen(options, prompt)
-  if (options.referenceImages !== undefined && options.referenceImages.length > 0) {
-    throw new Error('image-gen: reference images require provider "dashscope"; the openai flavor has no image input')
-  }
   const url = `${normalizeBaseUrl(options.baseUrl)}/images/generations`
   const body: Record<string, unknown> = { model: options.model, prompt, n: 1 }
   if (options.size !== undefined && options.size !== '') body.size = options.size
+  if (options.referenceImages !== undefined && options.referenceImages.length > 0) {
+    const images = options.referenceImages.map(
+      img => `data:${img.mediaType};base64,${Buffer.from(img.data).toString('base64')}`,
+    )
+    body.image = images.length === 1 ? images[0] : images
+  }
   const response = await fetch(url, {
     method: 'POST',
     headers: {

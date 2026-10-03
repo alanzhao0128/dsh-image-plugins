@@ -85,7 +85,7 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       prompt: { type: 'string', required: true, description: 'Detailed description of the image to generate; for image editing, describe how the reference image should change.' },
       size: { type: 'string', description: 'Optional output size. OMIT this parameter completely unless the user explicitly requested a specific resolution or aspect ratio in their prompt, so that the configured default size applies.' },
       output_path: { type: 'string', description: 'Where to save the image, relative to the workspace or absolute. Defaults to generated/<timestamp>.png.' },
-      reference_image: { type: 'string', description: 'Path to a reference image (PNG/JPEG/WebP/GIF) for image editing (I2I); only supported with the dashscope provider.' },
+      reference_image: { type: 'string', description: 'Path to a reference image (PNG/JPEG/WebP/GIF) for image editing or image-to-image (I2I).' },
     },
     output: {
       schema: {
@@ -118,9 +118,6 @@ export function applyGenerateImageTool(ctx: Context, getImage: () => ImageConfig
       const referenceImages = args.reference_image === undefined
         ? undefined
         : [await readReferenceImage(ctx, args.reference_image, image.maxReferenceBytes ?? DEFAULT_MAX_REFERENCE_BYTES, exec.signal, resolveOptions.cwd)]
-      if (referenceImages !== undefined && image.provider !== 'dashscope') {
-        throw new Error('reference_image requires the dashscope provider; set image.provider to "dashscope" to use image editing')
-      }
       const apiKey = await resolveApiKeyRuntime(ctx, image.apiKey)
       const requestedSize = args.size?.trim()
       let effectiveSize = (requestedSize !== undefined && requestedSize !== '' && requestedSize !== 'default' && requestedSize !== 'auto')

@@ -136,6 +136,8 @@ test('normalizes DashScope base urls to the native root', () => {
   assert.equal(dashscopeRoot('https://dashscope.aliyuncs.com'), 'https://dashscope.aliyuncs.com')
   assert.equal(dashscopeRoot('https://dashscope.aliyuncs.com/compatible-mode/v1'), 'https://dashscope.aliyuncs.com')
   assert.equal(dashscopeRoot('https://dashscope.aliyuncs.com/v1/'), 'https://dashscope.aliyuncs.com')
+  assert.equal(dashscopeRoot('https://maas.qianwenaiapi.com/compatible-mode/v1'), 'https://maas.qianwenaiapi.com')
+  assert.equal(dashscopeRoot('https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation'), 'https://maas.qianwenaiapi.com')
 })
 
 test('converts OpenAI-style sizes to the DashScope asterisk form', () => {
@@ -298,14 +300,27 @@ test('sends reference images as base64 content for I2I', async () => {
   })
 })
 
-test('rejects reference images on the openai flavor', async () => {
-  await assert.rejects(
-    callImageGen(
-      { baseUrl: 'http://127.0.0.1:1', apiKey: 'k', model: 'm', timeoutMs: 5_000, referenceImages: [{ mediaType: 'image/png', data: PNG_BYTES }] },
+test('sends reference images in openai flavor as image parameter', async () => {
+  await withServer(async (req, res) => {
+    assert.equal(req.url, '/images/generations')
+    const body = await readJsonBody(req) as { model: string; prompt: string; image: string }
+    assert.equal(body.model, 'image-model')
+    assert.equal(body.prompt, 'a red apple')
+    assert.equal(body.image, `data:image/png;base64,${Buffer.from(PNG_BYTES).toString('base64')}`)
+    json(res, 200, { data: [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }] })
+  }, async baseUrl => {
+    const result = await callImageGen(
+      {
+        baseUrl,
+        apiKey: 'test-key',
+        model: 'image-model',
+        timeoutMs: 5_000,
+        referenceImages: [{ mediaType: 'image/png', data: PNG_BYTES }],
+      },
       'a red apple',
-    ),
-    /reference images require provider "dashscope"/,
-  )
+    )
+    assert.deepEqual(result.data, PNG_BYTES)
+  })
 })
 
 test('generate_image tool falls back to image.defaultSize when args.size is omitted or default', async () => {
